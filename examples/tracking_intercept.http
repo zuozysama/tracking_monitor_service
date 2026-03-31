@@ -1,0 +1,229 @@
+﻿@baseUrl = http://127.0.0.1:8080
+@json = application/json
+@taskId = task-tracking-intercept-sequence-001
+
+### Tracking intercept sequence test
+### Goal: mode=intercept with staged verification
+### Stage-1: move to escort-style start point (rear / left_rear / right_rear)
+### Stage-2: after Stage-1 arrival, move to target side point (left or right; same side as Stage-1)
+### Stage-3: after Stage-2 arrival, move to target front-side point (left_front or right_front; same side as Stage-2)
+### Notes:
+### - /mock/autonomy/tracking/logs is for relative dispatch (rel_range_m / relative_bearing_deg)
+### - /tasks/{{taskId}}/result -> recommended_point is for absolute lon/lat
+
+### 1. Reset local mock state
+POST {{baseUrl}}/mock/dds/reset
+
+### 2. Set ownship initial state
+POST {{baseUrl}}/mock/dds/navigation
+Content-Type: {{json}}
+
+{
+  "platform_id": 1001,
+  "speed_mps": 6.2,
+  "heading_deg": 0.0,
+  "longitude": 120.5000000,
+  "latitude": 30.2200000,
+  "timestamp": "2026-03-24T10:00:00Z"
+}
+
+### 3. Set target perception input
+POST {{baseUrl}}/mock/dds/perception
+Content-Type: {{json}}
+
+{
+  "target_count": 1,
+  "targets": [
+    {
+      "source_platform_id": 2001,
+      "target_id": "target-intercept-001",
+      "target_batch_no": 301,
+      "target_bearing_deg": 35.0,
+      "target_distance_m": 3000,
+      "target_absolute_speed_mps": 6.2,
+      "target_absolute_heading_deg": 0.0,
+      "target_longitude": 121.5030000,
+      "target_latitude": 31.2200000,
+      "target_type_code": 106,
+      "military_civil_attr": 1,
+      "target_name": "target-intercept-001",
+      "threat_level": 2,
+      "timestamp": "2026-03-24T10:00:00Z",
+      "active": true
+    }
+  ]
+}
+
+### 4. Create tracking task in intercept mode
+POST {{baseUrl}}/tasks
+Content-Type: {{json}}
+
+{
+  "task_id": "{{taskId}}",
+  "task_type": "tracking",
+  "task_name": "tracking-intercept-sequence-test",
+  "task_source": "planning_service",
+  "priority": 1,
+  "mode": "intercept",
+  "target_info": {
+    "target_id": "target-intercept-001",
+    "target_batch_no": 301,
+    "target_type_code": 106,
+    "threat_level": 2,
+    "target_name": "target-intercept-001",
+    "military_civil_attr": 1
+  },
+  "task_area": {
+    "area_type": "polygon",
+    "points": [
+      { "longitude": 121.49, "latitude": 31.21 },
+      { "longitude": 121.52, "latitude": 31.21 },
+      { "longitude": 121.52, "latitude": 31.23 },
+      { "longitude": 121.49, "latitude": 31.23 }
+    ]
+  },
+  "expected_speed": 12.0,
+  "update_interval_sec": 1,
+  "end_condition": {
+    "duration_sec": 300,
+    "out_of_region_finish": true
+  },
+  "linkage_param": {
+    "enable_optical": true,
+    "enable_evidence": true
+  }
+}
+
+### 4. Inspect planning plan reports
+### Expect at least one item with plan_type = patrol (patrol waypoints sent to planning module)
+GET {{baseUrl}}/mock/collaboration/planning/plans
+
+### 5. Simulate planning feasibility callback for the reported patrol route
+POST {{baseUrl}}/tasks/callbacks/planning/feasibility
+Content-Type: {{json}}
+
+{
+  "task_id": "{{taskId}}",
+  "plan_type": "patrol",
+  "feasible": true,
+  "reason": "route accepted by planning",
+  "suggested_action": "continue",
+  "callback_time": "2026-03-24T10:00:05Z"
+}
+
+### 5. Inspect Stage-1 dispatch candidate (expected about 135 or 225 deg)
+GET {{baseUrl}}/mock/autonomy/tracking/logs
+
+### 6. Read Stage-1 absolute recommended point
+GET {{baseUrl}}/tasks/{{taskId}}/result
+
+### 7. Stage-1 arrival: move ownship to Stage-1 recommended_point 进入巡逻区域
+### Replace longitude/latitude/heading_deg/speed_mps from /tasks/{{taskId}}/result -> recommended_point
+POST {{baseUrl}}/mock/dds/navigation
+Content-Type: {{json}}
+
+{
+  "platform_id": 1001,
+  "speed_mps": 6.2,
+  "heading_deg": 0.0,
+  "longitude": 121.49984516225155,
+  "latitude": 31.21999996149976,
+  "timestamp": "2026-03-24T10:02:00Z"
+}
+
+### 8. Inspect Stage-2 dispatch candidate
+### if Stage-1 is right_rear -> Stage-2 should be right side (about 90 deg)
+### if Stage-1 is left_rear -> Stage-2 should be left side (about 270 deg)
+GET {{baseUrl}}/mock/autonomy/tracking/logs
+
+### 9. Read Stage-2 absolute recommended point
+GET {{baseUrl}}/tasks/{{taskId}}/result
+
+### 10. Stage-2 arrival: move ownship to Stage-2 recommended_point 进入第一个点
+### Replace longitude/latitude/heading_deg/speed_mps from /tasks/{{taskId}}/result -> recommended_point
+POST {{baseUrl}}/mock/dds/navigation
+Content-Type: {{json}}
+
+{
+  "platform_id": 1001,
+  "speed_mps": 6.2,
+  "heading_deg": 0.0,
+  "longitude": 121.50225640261345,
+  "latitude": 31.219364081455108,
+  "timestamp": "2026-03-24T10:03:00Z"
+}
+
+### 11. Inspect Stage-3 dispatch candidate
+### if Stage-2 is right -> Stage-3 should be right_front (about 45 deg)
+### if Stage-2 is left -> Stage-3 should be left_front (about 315 deg)
+GET {{baseUrl}}/mock/autonomy/tracking/logs
+
+### 12. Read Stage-3 absolute recommended point
+GET {{baseUrl}}/tasks/{{taskId}}/result
+
+### 13. Stage-3 arrival: move ownship to Stage-3 recommended_point 进入第2个点
+### Replace longitude/latitude/heading_deg/speed_mps from /tasks/{{taskId}}/result -> recommended_point
+POST {{baseUrl}}/mock/dds/navigation
+Content-Type: {{json}}
+
+{
+  "platform_id": 1001,
+  "speed_mps": 6.2,
+  "heading_deg": 0.0,
+  "longitude": 121.50194838741692,
+  "latitude": 31.21999999572219,
+  "timestamp": "2026-03-24T10:04:00Z"
+}
+
+### 12. Read Stage-3 absolute recommended point
+GET {{baseUrl}}/mock/autonomy/tracking/logs
+
+### 12. Read Stage-3 absolute recommended point
+GET {{baseUrl}}/tasks/{{taskId}}/result
+
+### 13. Stage-3 arrival: move ownship to Stage-3 recommended_point 进入第3个点
+### Replace longitude/latitude/heading_deg/speed_mps from /tasks/{{taskId}}/result -> recommended_point
+POST {{baseUrl}}/mock/dds/navigation
+Content-Type: {{json}}
+
+{
+  "platform_id": 1001,
+  "speed_mps": 6.2,
+  "heading_deg": 0.0,
+  "longitude": 121.50225639260906,
+  "latitude": 31.22063591426708,
+  "timestamp": "2026-03-24T10:04:00Z"
+}
+
+### 14. Inspect local situation after Stage-3 arrival
+GET {{baseUrl}}/mock/dds/situation
+
+### 15. Inspect emitted optical DDS commands
+GET {{baseUrl}}/mock/collaboration/optical-linkage/commands
+
+### 11. Cleanup task
+GET {{baseUrl}}/mock/collaboration/media/stream-access
+
+### 16. Inspect task result after Stage-3 arrival
+GET {{baseUrl}}/tasks/{{taskId}}/result
+
+### 17. Move ownship away before terminate
+POST {{baseUrl}}/mock/dds/navigation
+Content-Type: {{json}}
+
+{
+  "platform_id": 1001,
+  "speed_mps": 6.2,
+  "heading_deg": 0.0,
+  "longitude": 122.49,
+  "latitude": 32.21,
+  "timestamp": "2026-03-24T10:05:00Z"
+}
+
+### 18. Cleanup task
+POST {{baseUrl}}/tasks/{{taskId}}/terminate
+Content-Type: {{json}}
+
+{
+  "reason": "cleanup"
+}

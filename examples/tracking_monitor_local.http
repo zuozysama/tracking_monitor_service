@@ -1,0 +1,643 @@
+﻿@baseUrl = http://127.0.0.1:8080
+@json = application/json
+@taskId = task-tracking-002
+@trackingFilterTaskId = task-tracking-filter-001
+@trackingExpelTaskId = task-tracking-expel-001
+@patrolTaskId = task-patrol-coverage-001
+@preplanTaskId = task-preplan-001
+@underwaterTaskId = task-underwater-001
+
+### Service health
+GET {{baseUrl}}/
+
+### ====================
+### Formal APIs in current version
+### These are the interfaces that should be treated as the current official API surface.
+### DDS topics mentioned in the document are not invoked directly from this .http file.
+### The mock endpoints below are only local test helpers for this repository.
+### ====================
+
+### Create a basic tracking task
+POST {{baseUrl}}/tasks
+Content-Type: {{json}}
+
+{
+  "task_id": "{{taskId}}",
+  "task_type": "tracking",
+  "task_name": "tracking-basic-scenario",
+  "task_source": "planning_service",
+  "priority": 1,
+  "mode": "escort",
+  "target_info": {
+    "target_id": "target-001",
+    "target_batch_no": 1,
+    "target_type_code": 106,
+    "threat_level": 2,
+    "target_name": "target-001",
+    "military_civil_attr": 1
+  },
+  "task_area": {
+    "area_type": "polygon",
+    "points": [
+      { "longitude": 121.49, "latitude": 31.21 },
+      { "longitude": 121.52, "latitude": 31.21 },
+      { "longitude": 121.52, "latitude": 31.23 },
+      { "longitude": 121.49, "latitude": 31.23 }
+    ]
+  },
+  "expected_speed": 12.0,
+  "update_interval_sec": 1,
+  "end_condition": {
+    "duration_sec": 300,
+    "out_of_region_finish": true
+  },
+  "stream_media_param": {
+    "photo_enabled": true,
+    "photo_interval_sec": 5,
+    "video_enabled": true,
+    "video_interval_sec": 10,
+    "video_duration_sec": 10
+  },
+  "linkage_param": {
+    "enable_optical": true,
+    "enable_evidence": true
+  }
+}
+
+### Query task status
+GET {{baseUrl}}/tasks/{{taskId}}/status
+
+### Query task formal output
+GET {{baseUrl}}/tasks/{{taskId}}/output
+
+### Query task result detail
+GET {{baseUrl}}/tasks/{{taskId}}/result
+
+### Request media stream access
+POST {{baseUrl}}/media/stream/access
+Content-Type: {{json}}
+
+{
+  "task_id": "{{taskId}}",
+  "stream_type": "optical_video",
+  "channel_id": "optical-001",
+  "media_protocol": "webrtc",
+  "request_time": "2026-03-24T10:01:20Z"
+}
+
+### Send manual target selection request
+POST {{baseUrl}}/tasks/manual-selection/request
+Content-Type: {{json}}
+
+{
+  "task_id": "{{taskId}}",
+  "request_type": "manual_selection",
+  "timeout_sec": 10,
+  "candidate_targets": [
+    {
+      "target_id": "target-001",
+      "target_batch_no": 1,
+      "target_type_code": 106,
+      "threat_level": 2,
+      "target_name": "target-001",
+      "military_civil_attr": 1
+    },
+    {
+      "target_id": "target-002",
+      "target_batch_no": 2,
+      "target_type_code": 108,
+      "threat_level": 3,
+      "target_name": "target-002",
+      "military_civil_attr": 1
+    }
+  ]
+}
+
+### Receive manual target selection feedback
+POST {{baseUrl}}/tasks/manual-selection/feedback
+Content-Type: {{json}}
+
+{
+  "task_id": "{{taskId}}",
+  "selected_target_id": "target-002",
+  "feedback_time": "2026-03-24T10:02:30Z"
+}
+
+### Send manual target switch request
+POST {{baseUrl}}/tasks/manual-switch/request
+Content-Type: {{json}}
+
+{
+  "task_id": "{{taskId}}",
+  "request_type": "manual_switch",
+  "timeout_sec": 10,
+  "current_target_id": "target-002",
+  "new_candidate_targets": [
+    {
+      "target_id": "target-003",
+      "target_batch_no": 3,
+      "target_type_code": 106,
+      "threat_level": 2,
+      "target_name": "target-003",
+      "military_civil_attr": 1
+    }
+  ]
+}
+
+### Receive manual target switch feedback
+POST {{baseUrl}}/tasks/manual-switch/feedback
+Content-Type: {{json}}
+
+{
+  "task_id": "{{taskId}}",
+  "selected_target_id": "target-003",
+  "keep_current": false,
+  "feedback_time": "2026-03-24T10:03:00Z"
+}
+
+### Create a preplan task
+POST {{baseUrl}}/tasks
+Content-Type: {{json}}
+
+{
+  "task_id": "{{preplanTaskId}}",
+  "task_type": "preplan",
+  "task_name": "preplan-basic-scenario",
+  "task_area": {
+    "area_type": "polygon",
+    "points": [
+      { "longitude": 121.49, "latitude": 31.21 },
+      { "longitude": 121.52, "latitude": 31.21 },
+      { "longitude": 121.52, "latitude": 31.23 },
+      { "longitude": 121.49, "latitude": 31.23 }
+    ]
+  },
+  "expected_speed": 10.0,
+  "end_condition": {
+    "duration_sec": 120
+  }
+}
+
+### Query preplan output
+GET {{baseUrl}}/tasks/{{preplanTaskId}}/output
+
+### Query sonar match status
+GET {{baseUrl}}/sonar/match/status?task_id={{underwaterTaskId}}
+
+### Terminate the basic tracking task
+POST {{baseUrl}}/tasks/{{taskId}}/terminate
+Content-Type: {{json}}
+
+{
+  "reason": "cleanup"
+}
+
+### Terminate the preplan task
+POST {{baseUrl}}/tasks/{{preplanTaskId}}/terminate
+Content-Type: {{json}}
+
+{
+  "reason": "cleanup"
+}
+
+### ====================
+### Local mock and DDS simulation helpers
+### These endpoints are project-specific debug helpers.
+### They are not the formal interface definition in the external document.
+### Use them only for local integration testing in this repository.
+### ====================
+
+### Reset local mock DDS state
+POST {{baseUrl}}/mock/dds/reset
+
+### Simulate DDS ownship input
+POST {{baseUrl}}/mock/dds/navigation
+Content-Type: {{json}}
+
+{
+  "platform_id": 1001,
+  "speed_mps": 6.2,
+  "heading_deg": 90.0,
+  "longitude": 121.5000000,
+  "latitude": 31.2200000,
+  "timestamp": "2026-03-24T10:00:00Z"
+}
+
+### Simulate DDS target perception input
+POST {{baseUrl}}/mock/dds/perception
+Content-Type: {{json}}
+
+{
+  "target_count": 2,
+  "targets": [
+    {
+      "source_platform_id": 2001,
+      "target_id": "target-001",
+      "target_batch_no": 1,
+      "target_bearing_deg": 35.0,
+      "target_distance_m": 3000,
+      "target_absolute_speed_mps": 6.2,
+      "target_absolute_heading_deg": 90.0,
+      "target_longitude": 121.5030000,
+      "target_latitude": 31.2200000,
+      "target_type_code": 106,
+      "military_civil_attr": 1,
+      "target_name": "target-001",
+      "threat_level": 2,
+      "timestamp": "2026-03-24T10:00:00Z",
+      "active": true
+    },
+    {
+      "source_platform_id": 2001,
+      "target_id": "target-002",
+      "target_batch_no": 2,
+      "target_bearing_deg": 42.0,
+      "target_distance_m": 3400,
+      "target_absolute_speed_mps": 5.8,
+      "target_absolute_heading_deg": 100.0,
+      "target_longitude": 121.5060000,
+      "target_latitude": 31.2210000,
+      "target_type_code": 108,
+      "military_civil_attr": 1,
+      "target_name": "target-002",
+      "threat_level": 3,
+      "timestamp": "2026-03-24T10:00:00Z",
+      "active": true
+    }
+  ]
+}
+
+### Inspect mock planning phase reports
+GET {{baseUrl}}/mock/collaboration/planning/stages
+
+### Inspect mock planning result reports
+GET {{baseUrl}}/mock/collaboration/planning/plans
+
+### Inspect mock optical linkage DDS commands
+GET {{baseUrl}}/mock/collaboration/optical-linkage/commands
+
+### Inspect mock media access logs
+GET {{baseUrl}}/mock/collaboration/media/stream-access
+
+### Inspect mock manual selection requests
+GET {{baseUrl}}/mock/collaboration/manual-selection/requests
+
+### Inspect mock manual selection feedbacks
+GET {{baseUrl}}/mock/collaboration/manual-selection/feedbacks
+
+### Inspect mock manual switch requests
+GET {{baseUrl}}/mock/collaboration/manual-switch/requests
+
+### Inspect mock manual switch feedbacks
+GET {{baseUrl}}/mock/collaboration/manual-switch/feedbacks
+
+### Inspect mock autonomy patrol dispatch logs
+GET {{baseUrl}}/mock/autonomy/patrol/logs
+
+### Inspect mock autonomy tracking dispatch logs
+GET {{baseUrl}}/mock/autonomy/tracking/logs
+
+### Set mock sonar status
+POST {{baseUrl}}/mock/collaboration/sonar/{{underwaterTaskId}}/status
+Content-Type: {{json}}
+
+{
+  "matched": false,
+  "confidence": 0.2,
+  "update_time": "2026-03-24T10:06:00Z"
+}
+
+### ====================
+### Local algorithm verification scenarios
+### These scenarios depend on the local mock DDS helper endpoints above.
+### ====================
+
+### Scenario 1: update multi-target filtering test data
+POST {{baseUrl}}/mock/dds/perception
+Content-Type: {{json}}
+
+{
+  "target_count": 4,
+  "targets": [
+    {
+      "source_platform_id": 2001,
+      "target_id": "target-filter-001",
+      "target_batch_no": 101,
+      "target_bearing_deg": 18.0,
+      "target_distance_m": 1800,
+      "target_absolute_speed_mps": 7.0,
+      "target_absolute_heading_deg": 95.0,
+      "target_longitude": 121.5055000,
+      "target_latitude": 31.2210000,
+      "target_type_code": 106,
+      "enemy_friend_attr": 1,
+      "military_civil_attr": 1,
+      "target_name": "filter-target-001",
+      "threat_level": 3,
+      "timestamp": "2026-03-24T10:05:00Z",
+      "active": true
+    },
+    {
+      "source_platform_id": 2001,
+      "target_id": "target-filter-002",
+      "target_batch_no": 102,
+      "target_bearing_deg": 52.0,
+      "target_distance_m": 2600,
+      "target_absolute_speed_mps": 6.0,
+      "target_absolute_heading_deg": 92.0,
+      "target_longitude": 121.5120000,
+      "target_latitude": 31.2280000,
+      "target_type_code": 108,
+      "enemy_friend_attr": 1,
+      "military_civil_attr": 1,
+      "target_name": "filter-target-002",
+      "threat_level": 2,
+      "timestamp": "2026-03-24T10:05:00Z",
+      "active": true
+    },
+    {
+      "source_platform_id": 2001,
+      "target_id": "target-filter-003",
+      "target_batch_no": 103,
+      "target_bearing_deg": 145.0,
+      "target_distance_m": 2200,
+      "target_absolute_speed_mps": 5.5,
+      "target_absolute_heading_deg": 110.0,
+      "target_longitude": 121.5030000,
+      "target_latitude": 31.2050000,
+      "target_type_code": 106,
+      "enemy_friend_attr": 2,
+      "military_civil_attr": 1,
+      "target_name": "filter-target-003",
+      "threat_level": 1,
+      "timestamp": "2026-03-24T10:05:00Z",
+      "active": true
+    },
+    {
+      "source_platform_id": 2001,
+      "target_id": "target-filter-004",
+      "target_batch_no": 104,
+      "target_bearing_deg": 24.0,
+      "target_distance_m": 4200,
+      "target_absolute_speed_mps": 6.5,
+      "target_absolute_heading_deg": 88.0,
+      "target_longitude": 121.5165000,
+      "target_latitude": 31.2235000,
+      "target_type_code": 106,
+      "enemy_friend_attr": 1,
+      "military_civil_attr": 2,
+      "target_name": "filter-target-004",
+      "threat_level": 2,
+      "timestamp": "2026-03-24T10:05:00Z",
+      "active": true
+    }
+  ]
+}
+
+### Scenario 1: create filtering task
+POST {{baseUrl}}/tasks
+Content-Type: {{json}}
+
+{
+  "task_id": "{{trackingFilterTaskId}}",
+  "task_type": "tracking",
+  "task_name": "tracking-filter-scenario",
+  "task_source": "planning_service",
+  "priority": 1,
+  "mode": "escort",
+  "target_info": {
+    "target_type_code": 106,
+    "enemy_friend_attr": 1,
+    "military_civil_attr": 1
+  },
+  "task_area": {
+    "area_type": "polygon",
+    "points": [
+      { "longitude": 121.49, "latitude": 31.20 },
+      { "longitude": 121.52, "latitude": 31.20 },
+      { "longitude": 121.52, "latitude": 31.24 },
+      { "longitude": 121.49, "latitude": 31.24 }
+    ]
+  },
+  "expected_speed": 11.0,
+  "update_interval_sec": 1,
+  "end_condition": {
+    "duration_sec": 180,
+    "out_of_region_finish": true
+  }
+}
+
+### Scenario 1: inspect candidate ranking
+GET {{baseUrl}}/tasks/{{trackingFilterTaskId}}/result
+
+### Scenario 2: create expel mode task
+POST {{baseUrl}}/tasks
+Content-Type: {{json}}
+
+{
+  "task_id": "{{trackingExpelTaskId}}",
+  "task_type": "tracking",
+  "task_name": "tracking-expel-scenario",
+  "task_source": "planning_service",
+  "priority": 1,
+  "mode": "expel",
+  "target_info": {
+    "target_id": "target-filter-001",
+    "target_batch_no": 101,
+    "target_type_code": 106,
+    "enemy_friend_attr": 1,
+    "military_civil_attr": 1
+  },
+  "task_area": {
+    "area_type": "polygon",
+    "points": [
+      { "longitude": 121.49, "latitude": 31.20 },
+      { "longitude": 121.52, "latitude": 31.20 },
+      { "longitude": 121.52, "latitude": 31.24 },
+      { "longitude": 121.49, "latitude": 31.24 }
+    ]
+  },
+  "expected_speed": 12.0,
+  "update_interval_sec": 1,
+  "end_condition": {
+    "duration_sec": 180,
+    "out_of_region_finish": true
+  }
+}
+
+### Scenario 2: inspect expel output
+GET {{baseUrl}}/tasks/{{trackingExpelTaskId}}/result
+
+### Scenario 3: create patrol coverage task
+POST {{baseUrl}}/tasks
+Content-Type: {{json}}
+
+{
+  "task_id": "{{patrolTaskId}}",
+  "task_type": "patrol",
+  "task_name": "patrol-coverage-scenario",
+  "task_source": "planning_service",
+  "priority": 1,
+  "task_area": {
+    "area_type": "polygon",
+    "points": [
+      { "longitude": 121.4900, "latitude": 31.2100 },
+      { "longitude": 121.5200, "latitude": 31.2140 },
+      { "longitude": 121.5140, "latitude": 31.2350 },
+      { "longitude": 121.4960, "latitude": 31.2320 },
+      { "longitude": 121.4880, "latitude": 31.2210 }
+    ]
+  },
+  "expected_speed": 9.5,
+  "update_interval_sec": 1,
+  "end_condition": {
+    "duration_sec": 240
+  }
+}
+
+### Scenario 3: inspect patrol output
+GET {{baseUrl}}/tasks/{{patrolTaskId}}/output
+
+### Scenario 3: inspect preplan result for coverage route comparison
+GET {{baseUrl}}/tasks/{{preplanTaskId}}/result
+
+### Cleanup filtering scenario task
+POST {{baseUrl}}/tasks/{{trackingFilterTaskId}}/terminate
+Content-Type: {{json}}
+
+{
+  "reason": "cleanup"
+}
+
+### Cleanup expel scenario task
+POST {{baseUrl}}/tasks/{{trackingExpelTaskId}}/terminate
+Content-Type: {{json}}
+
+{
+  "reason": "cleanup"
+}
+
+### Cleanup patrol scenario task
+POST {{baseUrl}}/tasks/{{patrolTaskId}}/terminate
+Content-Type: {{json}}
+
+{
+  "reason": "cleanup"
+}
+
+
+
+
+### ====================
+### Tracking optical linkage closure test
+### Use this block to verify: dispatch tracking point -> simulate ownship arrival -> optical DDS command emitted
+### Recommended order: reset -> ownship -> target -> create task -> inspect dispatch -> simulate arrival -> inspect optical command
+### ====================
+
+### Tracking closure test: reset local DDS state
+POST {{baseUrl}}/mock/dds/reset
+
+### Tracking closure test: set ownship initial state
+POST {{baseUrl}}/mock/dds/navigation
+Content-Type: {{json}}
+
+{
+  "platform_id": 1001,
+  "speed_mps": 6.2,
+  "heading_deg": 90.0,
+  "longitude": 121.5000000,
+  "latitude": 31.2200000,
+  "timestamp": "2026-03-24T10:00:00Z"
+}
+
+### Tracking closure test: set target perception input
+POST {{baseUrl}}/mock/dds/perception
+Content-Type: {{json}}
+
+{
+  "target_count": 1,
+  "targets": [
+    {
+      "source_platform_id": 2001,
+      "target_id": "target-closure-001",
+      "target_batch_no": 201,
+      "target_bearing_deg": 35.0,
+      "target_distance_m": 3000,
+      "target_absolute_speed_mps": 6.2,
+      "target_absolute_heading_deg": 90.0,
+      "target_longitude": 121.5030000,
+      "target_latitude": 31.2200000,
+      "target_type_code": 106,
+      "military_civil_attr": 1,
+      "target_name": "target-closure-001",
+      "threat_level": 2,
+      "timestamp": "2026-03-24T10:00:00Z",
+      "active": true
+    }
+  ]
+}
+
+### Tracking closure test: create tracking task
+POST {{baseUrl}}/tasks
+Content-Type: {{json}}
+
+{
+  "task_id": "{{taskId}}",
+  "task_type": "tracking",
+  "task_name": "tracking-optical-closure-test",
+  "task_source": "planning_service",
+  "priority": 1,
+  "mode": "escort",
+  "target_info": {
+    "target_id": "target-closure-001",
+    "target_batch_no": 201,
+    "target_type_code": 106,
+    "threat_level": 2,
+    "target_name": "target-closure-001",
+    "military_civil_attr": 1
+  },
+  "task_area": {
+    "area_type": "polygon",
+    "points": [
+      { "longitude": 121.49, "latitude": 31.21 },
+      { "longitude": 121.52, "latitude": 31.21 },
+      { "longitude": 121.52, "latitude": 31.23 },
+      { "longitude": 121.49, "latitude": 31.23 }
+    ]
+  },
+  "expected_speed": 12.0,
+  "update_interval_sec": 1,
+  "linkage_param": {
+    "enable_optical": true,
+    "enable_evidence": false
+  }
+}
+
+### Tracking closure test: inspect tracking dispatch first
+GET {{baseUrl}}/mock/autonomy/tracking/logs
+
+### Tracking closure test: inspect task result first
+GET {{baseUrl}}/tasks/{{taskId}}/result
+
+### Tracking closure test: manually simulate ownship arrival near dispatched tracking point
+### Replace longitude latitude heading_deg speed_mps with the dispatched point you want to verify
+POST {{baseUrl}}/mock/dds/navigation
+Content-Type: {{json}}
+
+{
+  "platform_id": 1001,
+  "speed_mps": 12.0,
+  "heading_deg": 90.0,
+  "longitude": 121.5005000,
+  "latitude": 31.2205000,
+  "timestamp": "2026-03-24T10:02:00Z"
+}
+
+### Tracking closure test: inspect current DDS situation after manual arrival
+GET {{baseUrl}}/mock/dds/situation
+
+### Tracking closure test: inspect optical linkage DDS commands
+GET {{baseUrl}}/mock/collaboration/optical-linkage/commands
+
+### Tracking closure test: inspect task result after manual arrival
+GET {{baseUrl}}/tasks/{{taskId}}/result

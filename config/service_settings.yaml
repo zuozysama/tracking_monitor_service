@@ -1,0 +1,71 @@
+fixed_tracking:
+  default_region_radius_m: 3000.0
+
+tracking:
+  target_lost_timeout_sec: 30
+  escort_distance_m: 500.0
+  intercept_distance_m: 100.0
+  expel_distance_m: 200.0
+
+  filter:
+    min_target_range_m: 0.0
+    max_target_range_m: 8000.0
+    bearing_center_deg: 0.0
+    bearing_window_deg: 360.0
+
+    target_id_weight: 100.0
+    batch_id_weight: 60.0
+    hull_number_weight: 60.0
+    target_type_weight: 20.0
+    target_type_preferred_weight: 15.0
+    enemy_friend_weight: 15.0
+    enemy_friend_preferred_weight: 10.0
+    military_civil_weight: 15.0
+    military_civil_preferred_weight: 10.0
+    range_score_weight: 1.0
+    bearing_score_weight: 0.5
+
+    sector_filter_enabled: true
+    sector_center_deg: 0.0
+    sector_width_deg: 120.0
+
+    top_k_candidates: 1
+    hysteresis_enabled: true
+    hysteresis_margin: 0.5
+    debug_enabled: true
+
+  arrival:
+    tolerance_m: 100.0
+    stable_cycles: 3
+    heading_tolerance_deg: 15.0
+    speed_tolerance_kn: 2.0
+
+collaboration:
+  optical_post_retry_interval_sec: 1
+  sonar_poll_interval_sec: 5
+
+external_services:
+  optronic:
+    mode: mock
+    base_url: ""
+    timeout_sec: 3.0
+
+  media:
+    mode: mock
+    base_url: ""
+    timeout_sec: 3.0
+
+  planning:
+    mode: mock
+    base_url: ""
+    timeout_sec: 3.0
+
+  sonar:
+    mode: mock
+    base_url: ""
+    timeout_sec: 3.0
+
+  autonomy:
+    mode: mock
+    base_url: ""
+    timeout_sec: 3.0

@@ -1,0 +1,168 @@
+﻿@baseUrl = http://127.0.0.1:8080
+@json = application/json
+@taskId = task-tracking-optical-closure-0021
+
+### Tracking optical linkage closure test
+### Goal:
+### 1) verify patrol waypoints are reported to planning module for feasibility check before target is available
+### 2) verify tracking dispatch -> simulate ownship arrival -> emit optical DDS command
+
+### 1. Reset local mock state
+POST {{baseUrl}}/mock/dds/reset
+
+### 2. Set ownship initial state
+POST {{baseUrl}}/mock/dds/navigation
+Content-Type: {{json}}
+
+{
+  "platform_id": 1001,
+  "speed_mps": 6.2,
+  "heading_deg": 90.0,
+  "longitude": 121.5000000,
+  "latitude": 31.220000,
+  "timestamp": "2026-03-24T10:00:00Z"
+}
+
+### 3. Create tracking task with optical linkage enabled
+POST {{baseUrl}}/tasks
+Content-Type: {{json}}
+
+{
+  "task_id": "{{taskId}}",
+  "task_type": "tracking",
+  "task_name": "tracking-optical-closure-test",
+  "task_source": "planning_service",
+  "priority": 1,
+  "mode": "escort",
+  "target_info": {
+    "target_id": "target-closure-001",
+    "target_batch_no": 201,
+    "target_type_code": 106,
+    "threat_level": 2,
+    "target_name": "target-closure-001",
+    "military_civil_attr": 1
+  },
+  "task_area": {
+    "area_type": "polygon",
+    "points": [
+      { "longitude": 121.49, "latitude": 31.21 },
+      { "longitude": 121.52, "latitude": 31.21 },
+      { "longitude": 121.52, "latitude": 31.23 },
+      { "longitude": 121.49, "latitude": 31.23 }
+    ]
+  },
+  "expected_speed": 12.0,
+  "update_interval_sec": 1,
+  "end_condition": {
+    "duration_sec": 300,
+    "out_of_region_finish": true
+  },
+  "linkage_param": {
+    "enable_optical": true,
+    "enable_evidence": true
+  }
+}
+
+### 4. Inspect planning plan reports
+### Expect at least one item with plan_type = patrol (patrol waypoints sent to planning module)
+GET {{baseUrl}}/mock/collaboration/planning/plans
+
+### 5. Simulate planning feasibility callback for the reported patrol route
+POST {{baseUrl}}/tasks/callbacks/planning/feasibility
+Content-Type: {{json}}
+
+{
+  "task_id": "{{taskId}}",
+  "plan_type": "patrol",
+  "feasible": true,
+  "reason": "route accepted by planning",
+  "suggested_action": "continue",
+  "callback_time": "2026-03-24T10:00:05Z"
+}
+
+### 6. Inspect current task result before target input
+### Expect task_status waiting_target, patrol_plan_output populated, planning_callback received
+GET {{baseUrl}}/tasks/{{taskId}}/result
+
+### 7. Set target perception input
+POST {{baseUrl}}/mock/dds/perception
+Content-Type: {{json}}
+
+{
+  "target_count": 1,
+  "targets": [
+    {
+      "source_platform_id": 2001,
+      "target_id": "target-closure-001",
+      "target_batch_no": 201,
+      "target_bearing_deg": 35.0,
+      "target_distance_m": 3000,
+      "target_absolute_speed_mps": 6.2,
+      "target_absolute_heading_deg": 90.0,
+      "target_longitude": 121.5030000,
+      "target_latitude": 31.2200000,
+      "target_type_code": 106,
+      "military_civil_attr": 1,
+      "target_name": "target-closure-001",
+      "threat_level": 2,
+      "timestamp": "2026-03-24T10:00:00Z",
+      "active": true
+    }
+  ]
+}
+
+### 8. Inspect generated tracking dispatch
+GET {{baseUrl}}/mock/autonomy/tracking/logs
+
+### 10. Inspect current task result before manual arrival
+GET {{baseUrl}}/tasks/{{taskId}}/result
+
+### 11. Inspect current local situation
+GET {{baseUrl}}/mock/dds/situation
+
+### 12. Manually simulate ownship arrival near the dispatched tracking point
+### Replace longitude latitude heading_deg speed_mps with the dispatched point values you want to verify
+POST {{baseUrl}}/mock/dds/navigation
+Content-Type: {{json}}
+
+{
+  "platform_id": 1001,
+  "speed_mps": 6.2,
+  "heading_deg": 90.0,
+  "longitude": 121.49984516225155,
+  "latitude": 31.21999996149976,
+  "timestamp": "2026-03-24T10:02:00Z"
+}
+
+### 13. Inspect local situation after manual arrival
+GET {{baseUrl}}/mock/dds/situation
+
+### 14. Inspect emitted optical DDS commands
+GET {{baseUrl}}/mock/collaboration/optical-linkage/commands
+
+### 15. Inspect media stream access logs
+GET {{baseUrl}}/mock/collaboration/media/stream-access
+
+### 16. Inspect task result after manual arrival
+GET {{baseUrl}}/tasks/{{taskId}}/result
+
+### 17. Cleanup task
+POST {{baseUrl}}/mock/dds/navigation
+Content-Type: {{json}}
+
+{
+  "platform_id": 1001,
+  "speed_mps": 6.2,
+  "heading_deg": 90.0,
+  "longitude": 122.49,
+  "latitude": 32.21,
+  "timestamp": "2026-03-24T10:02:00Z"
+}
+
+### 18. Cleanup task
+POST {{baseUrl}}/tasks/{{taskId}}/terminate
+Content-Type: {{json}}
+
+{
+  "reason": "cleanup"
+}
