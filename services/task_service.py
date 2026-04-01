@@ -7,6 +7,8 @@ from domain.models import (
     EndCondition,
     FeasibilityCallbackRequest,
     ManualSelectionFeedbackRequest,
+    ManualSelectionRequest,
+    ManualSwitchRequest,
     ManualSwitchFeedbackRequest,
     TargetConstraint,
     TaskContext,
@@ -143,13 +145,62 @@ class TaskService:
         collaboration_service.apply_planning_callback(task, req)
         return task_store.get_task(req.task_id)
 
-    def apply_manual_selection_feedback(self, req: ManualSelectionFeedbackRequest) -> TaskContext:
+    def register_manual_selection_request(self, req: ManualSelectionRequest) -> TaskContext:
         task = task_store.get_task(req.task_id)
         if task is None:
             raise LookupError("task not found")
 
+        now = utc_now()
+        task.manual_selection_request_sent = True
+        task.manual_selection_pending = True
+        task.manual_selection_timeout_sec = req.timeout_sec
+        task.manual_selection_requested_at = now
+        task.manual_selection_deadline = now + timedelta(seconds=req.timeout_sec)
+        task.manual_selection_feedback_received = False
+        task.manual_selection_selected_target_id = None
+        task.manual_selection_candidate_count = len(req.candidate_targets)
+        task.manual_selection_last_countdown_sec = None
+        task.update_time = now
+        task_store.update_task(task)
+        return task_store.get_task(req.task_id)
+
+    def register_manual_switch_request(self, req: ManualSwitchRequest) -> TaskContext:
+        task = task_store.get_task(req.task_id)
+        if task is None:
+            raise LookupError("task not found")
+
+        now = utc_now()
+        task.manual_switch_request_sent = True
+        task.manual_switch_pending = True
+        task.manual_switch_timeout_sec = req.timeout_sec
+        task.manual_switch_requested_at = now
+        task.manual_switch_deadline = now + timedelta(seconds=req.timeout_sec)
+        task.manual_switch_feedback_received = False
+        task.manual_switch_selected_target_id = None
+        task.manual_switch_candidate_count = len(req.new_candidate_targets)
+        task.manual_switch_last_countdown_sec = None
+        task.update_time = now
+        task_store.update_task(task)
+        return task_store.get_task(req.task_id)
+
+    def apply_manual_selection_feedback(self, req: ManualSelectionFeedbackRequest) -> TaskContext:
+        task = task_store.get_task(req.task_id)
+        if task is None:
+            raise LookupError("task not found")
+        now = utc_now()
+        if task.manual_selection_deadline is not None and now > task.manual_selection_deadline:
+            raise ValueError("manual selection feedback timeout")
+
         task.current_target_id = req.selected_target_id
-        task.update_time = req.feedback_time
+        if task.target_constraint is not None:
+            # Manual selection from command side should lock target identity for follow-up ticks.
+            task.target_constraint.target_id = req.selected_target_id
+            task.target_constraint.target_batch_no = None
+        task.manual_selection_pending = False
+        task.manual_selection_feedback_received = True
+        task.manual_selection_selected_target_id = req.selected_target_id
+        task.manual_selection_last_countdown_sec = None
+        task.update_time = now
         task.execution_phase = "engaging"
         task_store.update_task(task)
         return task_store.get_task(req.task_id)
@@ -158,10 +209,20 @@ class TaskService:
         task = task_store.get_task(req.task_id)
         if task is None:
             raise LookupError("task not found")
+        now = utc_now()
+        if task.manual_switch_deadline is not None and now > task.manual_switch_deadline:
+            raise ValueError("manual switch feedback timeout")
 
         if not req.keep_current and req.selected_target_id:
             task.current_target_id = req.selected_target_id
-        task.update_time = req.feedback_time
+            if task.target_constraint is not None:
+                task.target_constraint.target_id = req.selected_target_id
+                task.target_constraint.target_batch_no = None
+        task.manual_switch_pending = False
+        task.manual_switch_feedback_received = True
+        task.manual_switch_selected_target_id = req.selected_target_id
+        task.manual_switch_last_countdown_sec = None
+        task.update_time = now
         task.execution_phase = "engaging"
         task_store.update_task(task)
         return task_store.get_task(req.task_id)
@@ -189,6 +250,54 @@ class TaskService:
             finish_reason=task.finish_reason,
             execution_phase=task.execution_phase,
         )
+
+    def get_manual_selection_status(self, task_id: str) -> dict:
+        task = task_store.get_task(task_id)
+        if task is None:
+            raise LookupError("task not found")
+
+        now = utc_now()
+        remaining_sec = None
+        if task.manual_selection_pending and task.manual_selection_deadline is not None:
+            remaining_sec = max(0, int((task.manual_selection_deadline - now).total_seconds()))
+
+        return {
+            "task_id": task.task_id,
+            "request_sent": task.manual_selection_request_sent,
+            "pending": task.manual_selection_pending,
+            "timeout_sec": task.manual_selection_timeout_sec,
+            "requested_at": task.manual_selection_requested_at,
+            "deadline": task.manual_selection_deadline,
+            "server_time": now,
+            "remaining_sec": remaining_sec,
+            "feedback_received": task.manual_selection_feedback_received,
+            "selected_target_id": task.manual_selection_selected_target_id,
+            "candidate_count": task.manual_selection_candidate_count,
+        }
+
+    def get_manual_switch_status(self, task_id: str) -> dict:
+        task = task_store.get_task(task_id)
+        if task is None:
+            raise LookupError("task not found")
+
+        now = utc_now()
+        remaining_sec = None
+        if task.manual_switch_pending and task.manual_switch_deadline is not None:
+            remaining_sec = max(0, int((task.manual_switch_deadline - now).total_seconds()))
+
+        return {
+            "task_id": task.task_id,
+            "request_sent": task.manual_switch_request_sent,
+            "pending": task.manual_switch_pending,
+            "timeout_sec": task.manual_switch_timeout_sec,
+            "requested_at": task.manual_switch_requested_at,
+            "deadline": task.manual_switch_deadline,
+            "server_time": now,
+            "remaining_sec": remaining_sec,
+            "feedback_received": task.manual_switch_feedback_received,
+            "selected_target_id": task.manual_switch_selected_target_id,
+            "candidate_count": task.manual_switch_candidate_count,
+        }
 
     def get_result(self, task_id: str) -> TaskResultResponse:
         task = task_store.get_task(task_id)

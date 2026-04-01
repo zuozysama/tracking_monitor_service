@@ -56,6 +56,24 @@ def get_task_status(task_id: str):
         raise HTTPException(status_code=404, detail=str(e))
 
 
+@router.get("/{task_id}/manual-selection/status")
+def get_manual_selection_status(task_id: str):
+    try:
+        result = task_service.get_manual_selection_status(task_id)
+        return ok(result)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get("/{task_id}/manual-switch/status")
+def get_manual_switch_status(task_id: str):
+    try:
+        result = task_service.get_manual_switch_status(task_id)
+        return ok(result)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
 @router.get("/{task_id}/result")
 def get_task_result(task_id: str):
     try:

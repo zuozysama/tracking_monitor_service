@@ -397,10 +397,11 @@ def filter_and_select_target(
     )
 
     debug_candidates = []
-    for item in top_k_candidates:
+    for item in candidates:
         debug_candidates.append(
             {
                 "target_id": item["target"].target_id,
+                "target_name": item["target"].target_name,
                 "target_type_code": item["target"].target_type_code,
                 "target_batch_no": item["target"].target_batch_no,
                 "enemy_friend_attr": item["target"].enemy_friend_attr,

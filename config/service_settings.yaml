@@ -29,7 +29,7 @@ tracking:
     sector_center_deg: 0.0
     sector_width_deg: 120.0
 
-    top_k_candidates: 1
+    top_k_candidates: 4
     hysteresis_enabled: true
     hysteresis_margin: 0.5
     debug_enabled: true

@@ -497,6 +497,24 @@ class TaskContext(CompatModel):
     planning_callback: Optional[FeasibilityCallbackRequest] = None
     last_autonomy_dispatch_signature: Optional[str] = None
     last_optical_dispatch_signature: Optional[str] = None
+    manual_selection_request_sent: bool = False
+    manual_selection_pending: bool = False
+    manual_selection_timeout_sec: int = 20
+    manual_selection_requested_at: Optional[datetime] = None
+    manual_selection_deadline: Optional[datetime] = None
+    manual_selection_feedback_received: bool = False
+    manual_selection_selected_target_id: Optional[str] = None
+    manual_selection_candidate_count: int = 0
+    manual_selection_last_countdown_sec: Optional[int] = None
+    manual_switch_request_sent: bool = False
+    manual_switch_pending: bool = False
+    manual_switch_timeout_sec: int = 20
+    manual_switch_requested_at: Optional[datetime] = None
+    manual_switch_deadline: Optional[datetime] = None
+    manual_switch_feedback_received: bool = False
+    manual_switch_selected_target_id: Optional[str] = None
+    manual_switch_candidate_count: int = 0
+    manual_switch_last_countdown_sec: Optional[int] = None
 
 
 class TaskStatusResponse(CompatModel):

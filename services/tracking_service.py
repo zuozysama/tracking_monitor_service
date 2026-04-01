@@ -149,6 +149,22 @@ class TrackingService:
         )
 
         task.candidate_targets = debug_candidates
+        if task.target_constraint is not None and task.target_constraint.target_id:
+            # In explicit designated-target mode, keep tracking the designated target,
+            # but still compute global ranked candidates for manual-switch decision.
+            relaxed_constraint = task.target_constraint.model_copy(deep=True)
+            relaxed_constraint.target_id = None
+            relaxed_constraint.target_batch_no = None
+            _, relaxed_debug_candidates = filter_and_select_target(
+                targets=targets,
+                ownship=ownship,
+                constraint=relaxed_constraint,
+                task_area=task.task_area,
+                max_target_range_m=get_tracking_max_target_range_m(),
+                identity_weights=get_tracking_filter_identity_weights(),
+                current_target_id=task.current_target_id,
+            )
+            task.candidate_targets = relaxed_debug_candidates
 
         if target is None:
             task.status = TaskStatus.WAITING_TARGET

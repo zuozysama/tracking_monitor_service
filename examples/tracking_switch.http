@@ -1,0 +1,292 @@
+﻿@baseUrl = http://127.0.0.1:8080
+@json = application/json
+@taskId = task-tracking-switch-staged-001
+
+### Tracking manual switch staged test
+### Focus APIs:
+### 1) auto-generated /tasks/manual-switch/request record (query by GET)
+### 2) POST /tasks/manual-switch/feedback
+###
+### Boundary with select scenario:
+### - select: no explicit designated target, system asks for manual selection.
+### - switch: explicit designated target already exists, system asks whether to switch.
+###
+### Scenario:
+### - Stage-1 inject only designated original target and verify stable tracking.
+### - Stage-2 inject higher-value targets.
+### - system auto-sends manual-switch request (up to 2 higher-value candidates) and starts 20s countdown.
+### - query switch send status via GET, then choose feedback branch.
+
+### 1. Reset local mock state
+POST {{baseUrl}}/mock/dds/reset
+
+### 2. Set ownship initial state OUTSIDE task area
+POST {{baseUrl}}/mock/dds/navigation
+Content-Type: {{json}}
+
+{
+  "platform_id": 1001,
+  "speed_mps": 6.2,
+  "heading_deg": 90.0,
+  "longitude": 120.5000000,
+  "latitude": 30.2200000,
+  "timestamp": "2026-04-01T12:00:00Z"
+}
+
+### 3. Stage-1 inject ONLY original designated target
+POST {{baseUrl}}/mock/dds/perception
+Content-Type: {{json}}
+
+{
+  "target_count": 1,
+  "targets": [
+    {
+      "source_platform_id": 2001,
+      "target_id": "target-origin-001",
+      "target_batch_no": 2101,
+      "target_bearing_deg": 88.0,
+      "target_distance_m": 1800,
+      "target_absolute_speed_mps": 6.0,
+      "target_absolute_heading_deg": 90.0,
+      "target_longitude": 121.5120000,
+      "target_latitude": 31.2200000,
+      "target_type_code": 106,
+      "military_civil_attr": 1,
+      "target_name": "target-origin-001",
+      "threat_level": 2,
+      "timestamp": "2026-04-01T12:00:00Z",
+      "active": true
+    }
+  ]
+}
+
+### 4. Create tracking task with explicit designated target (switch scenario precondition)
+POST {{baseUrl}}/tasks
+Content-Type: {{json}}
+
+{
+  "task_id": "{{taskId}}",
+  "task_type": "tracking",
+  "task_name": "tracking-switch-staged-test",
+  "task_source": "planning_service",
+  "priority": 1,
+  "mode": "escort",
+  "target_info": {
+    "target_id": "target-origin-001",
+    "target_batch_no": 2101,
+    "target_type_code": 106,
+    "threat_level": 2,
+    "target_name": "target-origin-001",
+    "military_civil_attr": 1
+  },
+  "task_area": {
+    "area_type": "polygon",
+    "points": [
+      { "longitude": 121.49, "latitude": 31.21 },
+      { "longitude": 121.55, "latitude": 31.21 },
+      { "longitude": 121.55, "latitude": 31.24 },
+      { "longitude": 121.49, "latitude": 31.24 }
+    ]
+  },
+  "expected_speed": 12.0,
+  "update_interval_sec": 1,
+  "end_condition": {
+    "duration_sec": 300,
+    "out_of_region_finish": true
+  },
+  "linkage_param": {
+    "enable_optical": true,
+    "enable_evidence": true
+  }
+}
+
+### 5. Simulate planning feasibility callback
+POST {{baseUrl}}/tasks/callbacks/planning/feasibility
+Content-Type: {{json}}
+
+{
+  "task_id": "{{taskId}}",
+  "plan_type": "patrol",
+  "feasible": true,
+  "reason": "route accepted by planning",
+  "suggested_action": "continue",
+  "callback_time": "2026-04-01T12:00:05Z"
+}
+
+### 6. Move ownship into task area
+POST {{baseUrl}}/mock/dds/navigation
+Content-Type: {{json}}
+
+{
+  "platform_id": 1001,
+  "speed_mps": 6.2,
+  "heading_deg": 90.0,
+  "longitude": 121.5000000,
+  "latitude": 31.2200000,
+  "timestamp": "2026-04-01T12:00:06Z"
+}
+
+### 7. Verify stage-1 tracking target
+### Expected: current_target_id = target-origin-001
+GET {{baseUrl}}/tasks/{{taskId}}/result
+
+### 8. Stage-2 inject higher-value targets (now multiple candidates exist)
+POST {{baseUrl}}/mock/dds/perception
+Content-Type: {{json}}
+
+{
+  "target_count": 4,
+  "targets": [
+    {
+      "source_platform_id": 2001,
+      "target_id": "target-origin-001",
+      "target_batch_no": 2101,
+      "target_bearing_deg": 88.0,
+      "target_distance_m": 1800,
+      "target_absolute_speed_mps": 6.0,
+      "target_absolute_heading_deg": 90.0,
+      "target_longitude": 121.5120000,
+      "target_latitude": 31.2200000,
+      "target_type_code": 106,
+      "military_civil_attr": 1,
+      "target_name": "target-origin-001",
+      "threat_level": 2,
+      "timestamp": "2026-04-01T12:00:10Z",
+      "active": true
+    },
+    {
+      "source_platform_id": 2001,
+      "target_id": "target-high-001",
+      "target_batch_no": 2201,
+      "target_bearing_deg": 90.0,
+      "target_distance_m": 1200,
+      "target_absolute_speed_mps": 6.3,
+      "target_absolute_heading_deg": 90.0,
+      "target_longitude": 121.5090000,
+      "target_latitude": 31.2205000,
+      "target_type_code": 106,
+      "military_civil_attr": 1,
+      "target_name": "target-high-001",
+      "threat_level": 4,
+      "timestamp": "2026-04-01T12:00:10Z",
+      "active": true
+    },
+    {
+      "source_platform_id": 2001,
+      "target_id": "target-high-002",
+      "target_batch_no": 2202,
+      "target_bearing_deg": 94.0,
+      "target_distance_m": 1400,
+      "target_absolute_speed_mps": 6.1,
+      "target_absolute_heading_deg": 92.0,
+      "target_longitude": 121.5140000,
+      "target_latitude": 31.2195000,
+      "target_type_code": 108,
+      "military_civil_attr": 1,
+      "target_name": "target-high-002",
+      "threat_level": 3,
+      "timestamp": "2026-04-01T12:00:10Z",
+      "active": true
+    },
+    {
+      "source_platform_id": 2001,
+      "target_id": "target-low-001",
+      "target_batch_no": 2301,
+      "target_bearing_deg": 100.0,
+      "target_distance_m": 3200,
+      "target_absolute_speed_mps": 5.4,
+      "target_absolute_heading_deg": 95.0,
+      "target_longitude": 121.5340000,
+      "target_latitude": 31.2180000,
+      "target_type_code": 108,
+      "military_civil_attr": 2,
+      "target_name": "target-low-001",
+      "threat_level": 1,
+      "timestamp": "2026-04-01T12:00:10Z",
+      "active": true
+    }
+  ]
+}
+
+### 9. Inspect result after stage-2 perception
+### Expected: still tracking original target until switch feedback
+GET {{baseUrl}}/tasks/{{taskId}}/result
+
+### 10. Inspect auto-generated manual switch request logs
+### If empty, wait 1-2 seconds and query again (decision loop is 1s)
+GET {{baseUrl}}/mock/collaboration/manual-switch/requests
+
+### 11. Inspect manual switch status (auto-send + 20s timer)
+GET {{baseUrl}}/tasks/{{taskId}}/manual-switch/status
+
+### 12. Choose one branch below (A or B), do not execute both
+
+### ====================
+### Branch A: no feedback in 20s -> keep original target
+### ====================
+
+### A1. Do not send feedback. Wait at least 20 seconds from request_time in status endpoint.
+
+### A2. Verify task keeps original target
+GET {{baseUrl}}/tasks/{{taskId}}/result
+
+### A3. Re-check manual switch status (pending should be false)
+GET {{baseUrl}}/tasks/{{taskId}}/manual-switch/status
+
+### ====================
+### Branch B: feedback in 20s -> switch to designated target
+### ====================
+
+### B1. Send manual switch feedback within 20 seconds
+### Note: feedback_time is recorded only; timeout check uses server current time.
+POST {{baseUrl}}/tasks/manual-switch/feedback
+Content-Type: {{json}}
+
+{
+  "task_id": "{{taskId}}",
+  "selected_target_id": "target-high-001",
+  "keep_current": false,
+  "feedback_time": "2026-04-01T00:00:00Z"
+}
+
+### B2. Inspect manual switch feedback logs
+GET {{baseUrl}}/mock/collaboration/manual-switch/feedbacks
+
+### B3. Verify switched target
+GET {{baseUrl}}/tasks/{{taskId}}/result
+
+### B4. Re-check manual switch status (feedback_received should be true)
+GET {{baseUrl}}/tasks/{{taskId}}/manual-switch/status
+
+### 13. Inspect autonomy tracking logs
+GET {{baseUrl}}/mock/autonomy/tracking/logs
+
+
+### 6. Move ownship into task area
+POST {{baseUrl}}/mock/dds/navigation
+Content-Type: {{json}}
+
+{
+  "platform_id": 1001,
+  "speed_mps": 6.2,
+  "heading_deg": 90.0,
+  "longitude": 121.50374190927708,
+  "latitude": 31.22049989305282,
+  "timestamp": "2026-04-01T12:00:06Z"
+}
+
+### 14. Inspect optical linkage commands
+GET {{baseUrl}}/mock/collaboration/optical-linkage/commands
+
+### 15. Inspect media stream access logs
+GET {{baseUrl}}/mock/collaboration/media/stream-access
+
+### 16. Cleanup task
+POST {{baseUrl}}/tasks/{{taskId}}/terminate
+Content-Type: {{json}}
+
+{
+  "reason": "cleanup"
+}
+
+

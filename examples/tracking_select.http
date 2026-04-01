@@ -1,0 +1,309 @@
+﻿@baseUrl = http://127.0.0.1:8080
+@json = application/json
+@taskId = task-tracking-select-merged-002
+
+### Tracking manual selection merged test
+### Goal:
+### 1) auto-send manual selection request when multiple targets are detected
+### 2) system starts 20s timer after request
+### 3) if feedback arrives within 20s -> track designated target
+### 4) if no feedback in 20s -> default to highest-score target
+### 5) keep verification steps aligned with tracking_escort.http:
+###    planning callback, autonomy dispatch, optical linkage, media stream logs
+###
+### Important:
+### - This script is one merged scenario with two optional branches.
+### - Execute only one branch (A or B) after step 11.
+### - If you need strict "report up to 4 sorted candidates", set:
+###   config/service_settings.yaml -> tracking.filter.top_k_candidates: 4
+###   then restart service.
+
+### 1. Reset local mock state
+POST {{baseUrl}}/mock/dds/reset
+
+### 2. Set ownship initial state
+POST {{baseUrl}}/mock/dds/navigation
+Content-Type: {{json}}
+
+{
+  "platform_id": 1001,
+  "speed_mps": 6.2,
+  "heading_deg": 90.0,
+  "longitude": 120.5000000,
+  "latitude": 30.2200000,
+  "timestamp": "2026-04-01T10:00:00Z"
+}
+
+### 3. Inject multi-target perception input (5 targets, for filter/sort)
+POST {{baseUrl}}/mock/dds/perception
+Content-Type: {{json}}
+
+{
+  "target_count": 5,
+  "targets": [
+    {
+      "source_platform_id": 2001,
+      "target_id": "target-select-001",
+      "target_batch_no": 1301,
+      "target_bearing_deg": 88.0,
+      "target_distance_m": 900,
+      "target_absolute_speed_mps": 6.1,
+      "target_absolute_heading_deg": 90.0,
+      "target_longitude": 121.5100000,
+      "target_latitude": 31.2200000,
+      "target_type_code": 106,
+      "military_civil_attr": 1,
+      "target_name": "target-select-001",
+      "threat_level": 3,
+      "timestamp": "2026-04-01T10:00:00Z",
+      "active": true
+    },
+    {
+      "source_platform_id": 2001,
+      "target_id": "target-select-002",
+      "target_batch_no": 1302,
+      "target_bearing_deg": 90.0,
+      "target_distance_m": 1400,
+      "target_absolute_speed_mps": 5.9,
+      "target_absolute_heading_deg": 90.0,
+      "target_longitude": 121.5155000,
+      "target_latitude": 31.2203000,
+      "target_type_code": 106,
+      "military_civil_attr": 1,
+      "target_name": "target-select-002",
+      "threat_level": 2,
+      "timestamp": "2026-04-01T10:00:00Z",
+      "active": true
+    },
+    {
+      "source_platform_id": 2001,
+      "target_id": "target-select-003",
+      "target_batch_no": 1303,
+      "target_bearing_deg": 92.0,
+      "target_distance_m": 1900,
+      "target_absolute_speed_mps": 5.8,
+      "target_absolute_heading_deg": 91.0,
+      "target_longitude": 121.5205000,
+      "target_latitude": 31.2198000,
+      "target_type_code": 106,
+      "military_civil_attr": 1,
+      "target_name": "target-select-003",
+      "threat_level": 2,
+      "timestamp": "2026-04-01T10:00:00Z",
+      "active": true
+    },
+    {
+      "source_platform_id": 2001,
+      "target_id": "target-select-004",
+      "target_batch_no": 1304,
+      "target_bearing_deg": 95.0,
+      "target_distance_m": 2600,
+      "target_absolute_speed_mps": 5.5,
+      "target_absolute_heading_deg": 92.0,
+      "target_longitude": 121.5270000,
+      "target_latitude": 31.2190000,
+      "target_type_code": 108,
+      "military_civil_attr": 2,
+      "target_name": "target-select-004",
+      "threat_level": 1,
+      "timestamp": "2026-04-01T10:00:00Z",
+      "active": true
+    },
+    {
+      "source_platform_id": 2001,
+      "target_id": "target-select-005",
+      "target_batch_no": 1305,
+      "target_bearing_deg": 100.0,
+      "target_distance_m": 3300,
+      "target_absolute_speed_mps": 5.2,
+      "target_absolute_heading_deg": 94.0,
+      "target_longitude": 121.5350000,
+      "target_latitude": 31.2180000,
+      "target_type_code": 108,
+      "military_civil_attr": 2,
+      "target_name": "target-select-005",
+      "threat_level": 1,
+      "timestamp": "2026-04-01T10:00:00Z",
+      "active": true
+    }
+  ]
+}
+
+### 4. Create tracking task in escort mode (without explicit target_id)
+POST {{baseUrl}}/tasks
+Content-Type: {{json}}
+
+{
+  "task_id": "{{taskId}}",
+  "task_type": "tracking",
+  "task_name": "tracking-select-merged-test",
+  "task_source": "planning_service",
+  "priority": 1,
+  "mode": "escort",
+  "target_info": {
+    "target_type_code": 106
+  },
+  "task_area": {
+    "area_type": "polygon",
+    "points": [
+      { "longitude": 121.49, "latitude": 31.21 },
+      { "longitude": 121.55, "latitude": 31.21 },
+      { "longitude": 121.55, "latitude": 31.24 },
+      { "longitude": 121.49, "latitude": 31.24 }
+    ]
+  },
+  "expected_speed": 12.0,
+  "update_interval_sec": 1,
+  "end_condition": {
+    "duration_sec": 300,
+    "out_of_region_finish": true
+  },
+  "linkage_param": {
+    "enable_optical": true,
+    "enable_evidence": true
+  }
+}
+
+### 5. Inspect planning plan reports
+GET {{baseUrl}}/mock/collaboration/planning/plans
+
+### 6. Simulate planning feasibility callback
+POST {{baseUrl}}/tasks/callbacks/planning/feasibility
+Content-Type: {{json}}
+
+{
+  "task_id": "{{taskId}}",
+  "plan_type": "patrol",
+  "feasible": true,
+  "reason": "route accepted by planning",
+  "suggested_action": "continue",
+  "callback_time": "2026-04-01T10:00:05Z"
+}
+
+### 7. Inspect candidate ranking and current selected target
+### Expected: current_target_id is highest-score candidate by default
+GET {{baseUrl}}/tasks/{{taskId}}/result
+
+### 8. Inspect autonomy tracking dispatch logs (before manual selection)
+GET {{baseUrl}}/mock/autonomy/tracking/logs
+
+### 2. Set ownship initial state
+POST {{baseUrl}}/mock/dds/navigation
+Content-Type: {{json}}
+
+{
+  "platform_id": 1001,
+  "speed_mps": 6.2,
+  "heading_deg": 90.0,
+  "longitude": 121.5000000,
+  "latitude": 31.2200000,
+  "timestamp": "2026-04-01T10:00:00Z"
+}
+
+### 9. Inspect auto-generated manual selection request logs
+GET {{baseUrl}}/mock/collaboration/manual-selection/requests
+
+### 10. Inspect manual selection status (auto-send + 20s timer state)
+GET {{baseUrl}}/tasks/{{taskId}}/manual-selection/status
+
+### 11. Choose one branch below (A or B), do not execute both
+
+
+### ====================
+### Branch A: feedback in 20s -> track designated target
+### ====================
+
+### A1. Send feedback within 20 seconds from request_time in status endpoint
+### Pick a non-top candidate intentionally to verify override
+### Note: feedback_time is recorded only; timeout check uses server current time.
+POST {{baseUrl}}/tasks/manual-selection/feedback
+Content-Type: {{json}}
+
+{
+  "task_id": "{{taskId}}",
+  "selected_target_id": "target-select-003",
+  "feedback_time": "2026-04-01T00:00:00Z"
+}
+
+### A2. Inspect manual selection feedback logs
+GET {{baseUrl}}/mock/collaboration/manual-selection/feedbacks
+
+### A3. Verify task follows designated target
+GET {{baseUrl}}/tasks/{{taskId}}/result
+
+### A4. Inspect autonomy tracking dispatch after designated selection
+GET {{baseUrl}}/mock/autonomy/tracking/logs
+
+
+### ====================
+### Branch B: no feedback in 20s -> default highest-score target
+### ====================
+
+### B1. Do not send feedback. Wait at least 20 seconds from request_time in status endpoint.
+
+### B2. Verify task keeps/defaults to highest-score target
+GET {{baseUrl}}/tasks/{{taskId}}/result
+
+### B3. Verify status shows pending=false after timeout
+GET {{baseUrl}}/tasks/{{taskId}}/manual-selection/status
+
+### B4. Inspect autonomy tracking dispatch after timeout defaulting
+GET {{baseUrl}}/mock/autonomy/tracking/logs
+
+
+### ====================
+### Shared post-selection checks (optical/media/autonomy like escort script)
+### ====================
+
+### 12. Inspect current local situation before manual arrival
+GET {{baseUrl}}/mock/dds/situation
+
+### 13. Simulate ownship arrival near dispatched tracking point
+### Replace longitude/latitude with /tasks/{{taskId}}/result -> recommended_point values
+POST {{baseUrl}}/mock/dds/navigation
+Content-Type: {{json}}
+
+{
+  "platform_id": 1001,
+  "speed_mps": 6.2,
+  "heading_deg": 90.0,
+  "longitude": 121.50474193708843,
+  "latitude": 31.219999893054922,
+  "timestamp": "2026-04-01T10:00:20Z"
+}
+
+### 14. Inspect local situation after arrival
+GET {{baseUrl}}/mock/dds/situation
+
+### 15. Inspect emitted optical DDS commands (target lock expected)
+GET {{baseUrl}}/mock/collaboration/optical-linkage/commands
+
+### 16. Inspect media stream access logs (optical stream expected)
+GET {{baseUrl}}/mock/collaboration/media/stream-access
+
+### 17. Inspect task result after arrival
+GET {{baseUrl}}/tasks/{{taskId}}/result
+
+### 18. Move ownship away before terminate
+POST {{baseUrl}}/mock/dds/navigation
+Content-Type: {{json}}
+
+{
+  "platform_id": 1001,
+  "speed_mps": 6.2,
+  "heading_deg": 90.0,
+  "longitude": 122.49,
+  "latitude": 32.21,
+  "timestamp": "2026-04-01T10:03:00Z"
+}
+
+### 19. Cleanup task
+POST {{baseUrl}}/tasks/{{taskId}}/terminate
+Content-Type: {{json}}
+
+{
+  "reason": "cleanup"
+}
+
+
+

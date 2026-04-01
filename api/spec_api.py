@@ -24,12 +24,20 @@ def get_media_stream_access(req: MediaStreamAccessRequest):
 
 @router.post("/tasks/manual-selection/request")
 def request_manual_selection(req: ManualSelectionRequest):
+    try:
+        task_service.register_manual_selection_request(req)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     collaboration_store.append_manual_selection_request(req.model_dump(mode="json"))
     return ok({"accepted": True})
 
 
 @router.post("/tasks/manual-switch/request")
 def request_manual_switch(req: ManualSwitchRequest):
+    try:
+        task_service.register_manual_switch_request(req)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     collaboration_store.append_manual_switch_request(req.model_dump(mode="json"))
     return ok({"accepted": True})
 
@@ -40,6 +48,8 @@ def receive_manual_selection_feedback(req: ManualSelectionFeedbackRequest):
         task_service.apply_manual_selection_feedback(req)
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     collaboration_store.append_manual_selection_feedback(req.model_dump(mode="json"))
     return ok({"task_id": req.task_id, "feedback_received": True})
@@ -51,6 +61,8 @@ def receive_manual_switch_feedback(req: ManualSwitchFeedbackRequest):
         task_service.apply_manual_switch_feedback(req)
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     collaboration_store.append_manual_switch_feedback(req.model_dump(mode="json"))
     return ok({"task_id": req.task_id, "feedback_received": True})

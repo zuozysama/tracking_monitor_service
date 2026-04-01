@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 from clients.autonomy_client import autonomy_client
@@ -12,12 +12,16 @@ from domain.models import (
     AutonomyPatrolDispatch,
     AutonomyTrackingDispatch,
     GeoPoint,
+    ManualSelectionRequest,
+    ManualSwitchRequest,
     MediaStreamAccessRequest,
     OpticalLinkageCommand,
     OptronicStatus,
     OwnShipState,
+    TargetInfo,
     TaskContext,
 )
+from store.collaboration_store import collaboration_store
 from store.task_store import task_store
 from utils.config_utils import (
     get_sonar_poll_interval_sec,
@@ -38,6 +42,174 @@ def _heading_diff_deg(a: float, b: float) -> float:
     return abs((a - b + 180.0) % 360.0 - 180.0)
 
 class CollaborationService:
+    def _build_manual_selection_candidates(self, task: TaskContext) -> list[TargetInfo]:
+        candidates = task.candidate_targets or []
+        top_candidates = candidates[:4]
+
+        result: list[TargetInfo] = []
+        for item in top_candidates:
+            result.append(
+                TargetInfo(
+                    target_id=item.get("target_id"),
+                    target_batch_no=item.get("target_batch_no"),
+                    target_type_code=item.get("target_type_code"),
+                    target_name=item.get("target_name") or item.get("target_id"),
+                    enemy_friend_attr=item.get("enemy_friend_attr"),
+                    military_civil_attr=item.get("military_civil_attr"),
+                )
+            )
+        return result
+
+    def _try_auto_request_manual_selection(self, task: TaskContext) -> None:
+        if task.manual_selection_request_sent:
+            return
+        if task.task_type != TaskType.TRACKING:
+            return
+        if task.target_constraint is not None and task.target_constraint.target_id:
+            return
+
+        candidates = task.candidate_targets or []
+        if len(candidates) <= 1:
+            return
+
+        payload = ManualSelectionRequest(
+            task_id=task.task_id,
+            request_type="manual_selection",
+            timeout_sec=task.manual_selection_timeout_sec,
+            candidate_targets=self._build_manual_selection_candidates(task),
+        )
+        collaboration_store.append_manual_selection_request(payload.model_dump(mode="json"))
+
+        now = utc_now()
+        task.manual_selection_request_sent = True
+        task.manual_selection_pending = True
+        task.manual_selection_feedback_received = False
+        task.manual_selection_selected_target_id = None
+        task.manual_selection_requested_at = now
+        task.manual_selection_deadline = now + timedelta(seconds=payload.timeout_sec)
+        task.manual_selection_candidate_count = len(payload.candidate_targets)
+        task.manual_selection_last_countdown_sec = None
+        print(
+            f"[ManualSelection] task={task.task_id} request_sent candidates={task.manual_selection_candidate_count} "
+            f"timeout_sec={payload.timeout_sec}"
+        )
+        task_store.update_task(task)
+
+    def _update_manual_selection_timeout(self, task: TaskContext) -> None:
+        if not task.manual_selection_pending:
+            return
+        if task.manual_selection_deadline is None:
+            return
+        now = utc_now()
+        if now < task.manual_selection_deadline:
+            remaining_sec = max(0, int((task.manual_selection_deadline - now).total_seconds()))
+            if task.manual_selection_last_countdown_sec != remaining_sec:
+                print(f"[ManualSelection] task={task.task_id} countdown={remaining_sec}s")
+                task.manual_selection_last_countdown_sec = remaining_sec
+                task_store.update_task(task)
+            return
+
+        task.manual_selection_pending = False
+        task.manual_selection_last_countdown_sec = None
+        task.update_time = now
+        print(f"[ManualSelection] task={task.task_id} timeout reached, keep highest-score target")
+        task_store.update_task(task)
+
+    def _build_manual_switch_candidates(self, task: TaskContext) -> list[TargetInfo]:
+        candidates = task.candidate_targets or []
+        if not candidates or not task.current_target_id:
+            return []
+
+        current_score = None
+        for item in candidates:
+            if item.get("target_id") == task.current_target_id:
+                current_score = float(item.get("total_score") or 0.0)
+                break
+        if current_score is None:
+            return []
+
+        higher: list[TargetInfo] = []
+        for item in candidates:
+            target_id = item.get("target_id")
+            if target_id == task.current_target_id:
+                continue
+            score = float(item.get("total_score") or 0.0)
+            if score <= current_score:
+                continue
+            higher.append(
+                TargetInfo(
+                    target_id=target_id,
+                    target_batch_no=item.get("target_batch_no"),
+                    target_type_code=item.get("target_type_code"),
+                    target_name=item.get("target_name") or target_id,
+                    enemy_friend_attr=item.get("enemy_friend_attr"),
+                    military_civil_attr=item.get("military_civil_attr"),
+                )
+            )
+            if len(higher) >= 2:
+                break
+        return higher
+
+    def _try_auto_request_manual_switch(self, task: TaskContext) -> None:
+        if task.manual_switch_request_sent:
+            return
+        if task.task_type != TaskType.TRACKING:
+            return
+        if not task.current_target_id:
+            return
+        if task.target_constraint is None or not task.target_constraint.target_id:
+            # Switch scenario requires explicit designated target.
+            return
+
+        higher_candidates = self._build_manual_switch_candidates(task)
+        if not higher_candidates:
+            return
+
+        payload = ManualSwitchRequest(
+            task_id=task.task_id,
+            request_type="manual_switch",
+            timeout_sec=task.manual_switch_timeout_sec,
+            current_target_id=task.current_target_id,
+            new_candidate_targets=higher_candidates,
+        )
+        collaboration_store.append_manual_switch_request(payload.model_dump(mode="json"))
+
+        now = utc_now()
+        task.manual_switch_request_sent = True
+        task.manual_switch_pending = True
+        task.manual_switch_feedback_received = False
+        task.manual_switch_selected_target_id = None
+        task.manual_switch_requested_at = now
+        task.manual_switch_deadline = now + timedelta(seconds=payload.timeout_sec)
+        task.manual_switch_candidate_count = len(payload.new_candidate_targets)
+        task.manual_switch_last_countdown_sec = None
+        print(
+            f"[ManualSwitch] task={task.task_id} request_sent current={payload.current_target_id} "
+            f"candidates={task.manual_switch_candidate_count} timeout_sec={payload.timeout_sec}"
+        )
+        task_store.update_task(task)
+
+    def _update_manual_switch_timeout(self, task: TaskContext) -> None:
+        if not task.manual_switch_pending:
+            return
+        if task.manual_switch_deadline is None:
+            return
+
+        now = utc_now()
+        if now < task.manual_switch_deadline:
+            remaining_sec = max(0, int((task.manual_switch_deadline - now).total_seconds()))
+            if task.manual_switch_last_countdown_sec != remaining_sec:
+                print(f"[ManualSwitch] task={task.task_id} countdown={remaining_sec}s")
+                task.manual_switch_last_countdown_sec = remaining_sec
+                task_store.update_task(task)
+            return
+
+        task.manual_switch_pending = False
+        task.manual_switch_last_countdown_sec = None
+        task.update_time = now
+        print(f"[ManualSwitch] task={task.task_id} timeout reached, keep current target")
+        task_store.update_task(task)
+
     def _build_plan_signature_payload(self, task: TaskContext) -> tuple[Optional[str], Optional[dict]]:
         if task.tracking_plan_output is not None:
             return (
@@ -354,6 +526,10 @@ class CollaborationService:
         task_store.update_task(task)
 
     def handle_tracking_collaboration(self, task: TaskContext, ownship: OwnShipState) -> None:
+        self._try_auto_request_manual_selection(task)
+        self._update_manual_selection_timeout(task)
+        self._try_auto_request_manual_switch(task)
+        self._update_manual_switch_timeout(task)
         self.report_stage_if_changed(task)
         self.report_plan_if_changed(task)
         self.dispatch_autonomy_if_changed(task)
