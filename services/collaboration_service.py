@@ -589,7 +589,7 @@ class CollaborationService:
         if media.photo_enabled:
             elapsed = _seconds_since(task.last_photo_time)
             if elapsed is None or elapsed >= media.photo_interval_sec:
-                media_client.capture_photo(task.task_id)
+                photo_result = media_client.capture_photo(task.task_id)
                 task.last_photo_time = utc_now()
                 self._publish_dds(
                     STREAM_MEDIA_PARAM_TOPIC,
@@ -598,14 +598,16 @@ class CollaborationService:
                         "task_type": TASK_TYPE_CODE_MAP.get(task.task_type, 0),
                         "media_event_type": 1,
                         "media_type": 1,
-                        "media_status": 3,
+                        "media_status": 3 if photo_result.get("success") else 4,
+                        "media_access_path": photo_result.get("file_path", ""),
+                        "snapshot_url": photo_result.get("file_path", ""),
                     },
                 )
 
         if media.video_enabled:
             elapsed = _seconds_since(task.last_video_time)
             if elapsed is None or elapsed >= media.video_interval_sec:
-                media_client.record_video(task.task_id, media.video_duration_sec)
+                video_result = media_client.record_video(task.task_id, media.video_duration_sec)
                 task.last_video_time = utc_now()
                 self._publish_dds(
                     STREAM_MEDIA_PARAM_TOPIC,
@@ -614,7 +616,9 @@ class CollaborationService:
                         "task_type": TASK_TYPE_CODE_MAP.get(task.task_type, 0),
                         "media_event_type": 2,
                         "media_type": 2,
-                        "media_status": 3,
+                        "media_status": 3 if video_result.get("success") else 4,
+                        "media_access_path": video_result.get("file_path", ""),
+                        "snapshot_url": "",
                     },
                 )
 

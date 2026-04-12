@@ -49,13 +49,13 @@ class ApiContractTestCase(unittest.TestCase):
         self.assertEqual(create_body["code"], 200)
         self.assertEqual(create_body["data"]["task_id"], task_id)
 
-        status_resp = self.client.get(f"/api/v1/tasks/{task_id}/status")
+        status_resp = self.client.get(f"/api/v1/{task_id}/status")
         self.assertEqual(status_resp.status_code, 200)
         status_body = status_resp.json()
         self.assertEqual(status_body["code"], 200)
         self.assertIn(status_body["data"]["task_status"], ["created", "running", "completed", "terminated", "failed"])
 
-        output_resp = self.client.get(f"/api/v1/tasks/{task_id}/output")
+        output_resp = self.client.get(f"/api/v1/{task_id}/output")
         self.assertEqual(output_resp.status_code, 200)
         output_body = output_resp.json()
         self.assertEqual(output_body["code"], 200)
@@ -124,7 +124,7 @@ class ApiContractTestCase(unittest.TestCase):
         )
 
         feedback_resp = self.client.post(
-            "/api/v1/tasks/manual-selection/feedback",
+            "/api/v1/manual_selection/feedback",
             json={
                 "task_id": task_id,
                 "selected_target_id": "target-001",
@@ -178,7 +178,7 @@ class ApiContractTestCase(unittest.TestCase):
         self.assertIn("/api/v1/tasks", data["paths"])
         self.assertIn("/api/v1/healthz", data["paths"])
 
-        docs_resp = self.client.get("/api/swagger-ui/index.html")
+        docs_resp = self.client.get("/api/swagger_ui/index.html")
         self.assertEqual(docs_resp.status_code, 200)
 
 

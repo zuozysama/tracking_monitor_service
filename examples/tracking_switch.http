@@ -5,7 +5,7 @@
 ### Tracking manual switch staged test
 ### Focus APIs:
 ### 1) auto-generated manual_switch_request_topic DDS publish log (query by GET /mock/collaboration/dds/publish-logs)
-### 2) POST /api/v1/tasks/manual-switch/feedback
+### 2) POST /api/v1/manual_switch/feedback
 ###
 ### Boundary with select scenario:
 ### - select: no explicit designated target, system asks for manual selection.
@@ -217,7 +217,7 @@ GET {{baseUrl}}/api/v1/tasks/{{taskId}}/result
 GET {{baseUrl}}/mock/collaboration/manual-switch/requests
 
 ### 11. Inspect manual switch status (auto-send + 20s timer)
-GET {{baseUrl}}/api/v1/tasks/{{taskId}}/manual-switch/status
+GET {{baseUrl}}/api/v1/{{taskId}}/manual_switch/status
 
 ### 12. Choose one branch below (A or B), do not execute both
 
@@ -231,7 +231,7 @@ GET {{baseUrl}}/api/v1/tasks/{{taskId}}/manual-switch/status
 GET {{baseUrl}}/api/v1/tasks/{{taskId}}/result
 
 ### A3. Re-check manual switch status (pending should be false)
-GET {{baseUrl}}/api/v1/tasks/{{taskId}}/manual-switch/status
+GET {{baseUrl}}/api/v1/{{taskId}}/manual_switch/status
 
 ### ====================
 ### Branch B: feedback in 20s -> switch to designated target
@@ -239,7 +239,7 @@ GET {{baseUrl}}/api/v1/tasks/{{taskId}}/manual-switch/status
 
 ### B1. Send manual switch feedback within 20 seconds
 ### Note: feedback_time is recorded only; timeout check uses server current time.
-POST {{baseUrl}}/api/v1/tasks/manual-switch/feedback
+POST {{baseUrl}}/api/v1/manual_switch/feedback
 Content-Type: {{json}}
 
 {
@@ -256,7 +256,7 @@ GET {{baseUrl}}/mock/collaboration/manual-switch/feedbacks
 GET {{baseUrl}}/api/v1/tasks/{{taskId}}/result
 
 ### B4. Re-check manual switch status (feedback_received should be true)
-GET {{baseUrl}}/api/v1/tasks/{{taskId}}/manual-switch/status
+GET {{baseUrl}}/api/v1/{{taskId}}/manual_switch/status
 
 ### 13. Inspect autonomy tracking logs
 GET {{baseUrl}}/mock/autonomy/tracking/logs
@@ -288,6 +288,7 @@ Content-Type: {{json}}
 {
   "reason": "cleanup"
 }
+
 
 
 

@@ -11,7 +11,7 @@ from services.task_service import task_service
 router = APIRouter()
 
 
-@router.post("")
+@router.post("/tasks")
 def create_task(req: CreateTaskRequest):
     try:
         task = task_service.create_task(req)
@@ -31,7 +31,7 @@ def create_task(req: CreateTaskRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("")
+@router.get("/tasks")
 def list_tasks():
     tasks = task_service.list_tasks()
     items = [
@@ -56,7 +56,7 @@ def get_task_status(task_id: str):
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@router.get("/{task_id}/manual-selection/status")
+@router.get("/{task_id}/manual_selection/status")
 def get_manual_selection_status(task_id: str):
     try:
         result = task_service.get_manual_selection_status(task_id)
@@ -65,7 +65,7 @@ def get_manual_selection_status(task_id: str):
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@router.get("/{task_id}/manual-switch/status")
+@router.get("/{task_id}/manual_switch/status")
 def get_manual_switch_status(task_id: str):
     try:
         result = task_service.get_manual_switch_status(task_id)
@@ -92,7 +92,7 @@ def get_task_output(task_id: str):
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@router.post("/{task_id}/terminate")
+@router.post("/tasks/{task_id}/terminate")
 def terminate_task(task_id: str, req: TerminateTaskRequest):
     try:
         task = task_service.terminate_task(task_id, reason=req.reason)

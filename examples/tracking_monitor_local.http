@@ -65,10 +65,10 @@ Content-Type: {{json}}
 }
 
 ### Query task status
-GET {{baseUrl}}/api/v1/tasks/{{taskId}}/status
+GET {{baseUrl}}/api/v1/{{taskId}}/status
 
 ### Query task formal output
-GET {{baseUrl}}/api/v1/tasks/{{taskId}}/output
+GET {{baseUrl}}/api/v1/{{taskId}}/output
 
 ### Query task result detail
 GET {{baseUrl}}/api/v1/tasks/{{taskId}}/result
@@ -80,7 +80,7 @@ GET {{baseUrl}}/api/v1/media/stream/access?task_id={{taskId}}&stream_type=optica
 GET {{baseUrl}}/mock/collaboration/dds/publish-logs
 
 ### Receive manual target selection feedback
-POST {{baseUrl}}/api/v1/tasks/manual-selection/feedback
+POST {{baseUrl}}/api/v1/manual_selection/feedback
 Content-Type: {{json}}
 
 {
@@ -93,7 +93,7 @@ Content-Type: {{json}}
 GET {{baseUrl}}/mock/collaboration/dds/publish-logs
 
 ### Receive manual target switch feedback
-POST {{baseUrl}}/api/v1/tasks/manual-switch/feedback
+POST {{baseUrl}}/api/v1/manual_switch/feedback
 Content-Type: {{json}}
 
 {
@@ -127,7 +127,7 @@ Content-Type: {{json}}
 }
 
 ### Query preplan output
-GET {{baseUrl}}/api/v1/tasks/{{preplanTaskId}}/output
+GET {{baseUrl}}/api/v1/{{preplanTaskId}}/output
 
 ### Query sonar match status
 GET {{baseUrl}}/api/v1/sonar/match/status?task_id={{underwaterTaskId}}
@@ -444,7 +444,7 @@ Content-Type: {{json}}
 }
 
 ### Scenario 3: inspect patrol output
-GET {{baseUrl}}/api/v1/tasks/{{patrolTaskId}}/output
+GET {{baseUrl}}/api/v1/{{patrolTaskId}}/output
 
 ### Scenario 3: inspect preplan result for coverage route comparison
 GET {{baseUrl}}/api/v1/tasks/{{preplanTaskId}}/result
@@ -625,7 +625,7 @@ Content-Type: {{json}}
 }
 
 ### Query circle task status
-GET {{baseUrl}}/api/v1/tasks/{{trackingCircleTaskId}}/status
+GET {{baseUrl}}/api/v1/{{trackingCircleTaskId}}/status
 
 ### Query circle task result detail
 GET {{baseUrl}}/api/v1/tasks/{{trackingCircleTaskId}}/result
@@ -637,3 +637,5 @@ Content-Type: {{json}}
 {
   "reason": "cleanup"
 }
+
+

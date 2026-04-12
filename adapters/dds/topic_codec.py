@@ -1,10 +1,19 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import struct
 from datetime import datetime
 from typing import Any
 
-from domain.dds_contract import OWNSHIP_NAVIGATION_TOPIC, TARGET_PERCEPTION_TOPIC, TASK_UPDATE_TOPIC
+from domain.dds_contract import (
+    ELECTRO_OPTICAL_LINKAGE_CMD_TOPIC,
+    MANUAL_SELECTION_REQUEST_TOPIC,
+    MANUAL_SWITCH_REQUEST_TOPIC,
+    OWNSHIP_NAVIGATION_TOPIC,
+    PREPLAN_RESULT_TOPIC,
+    STREAM_MEDIA_PARAM_TOPIC,
+    TARGET_PERCEPTION_TOPIC,
+    TASK_UPDATE_TOPIC,
+)
 
 
 def _fit_ascii(value: str, size: int) -> bytes:
@@ -27,8 +36,7 @@ def _i32(v: Any) -> int:
 
 
 def encode_topic_payload(topic: str, payload: dict) -> bytes:
-    # NOTE: little-endian is used here for engineering联调; if vendor ICD requires big-endian,
-    # switch struct format from '<' to '>' in each pack call.
+    # NOTE: little-endian is used here for engineering integration.
     if topic == OWNSHIP_NAVIGATION_TOPIC:
         platform_id = _u16(payload.get("platform_id", 0))
         speed_x100 = _u16(round(float(payload.get("speed_mps", 0.0)) * 100))
@@ -78,6 +86,93 @@ def encode_topic_payload(topic: str, payload: dict) -> bytes:
             _u16(payload.get("waypoint_count", 0)),
             _u16(payload.get("finish_reason", 0)) & 0xFF,
             b"\x00" * 16,
+        )
+
+    if topic == PREPLAN_RESULT_TOPIC:
+        route = payload.get("planned_route") or []
+        header = struct.pack(
+            "<64sBH",
+            _fit_ascii(str(payload.get("task_id") or ""), 64),
+            _u16(payload.get("task_type", 5)) & 0xFF,
+            _u16(payload.get("waypoint_count", len(route))),
+        )
+        body = bytearray()
+        for waypoint in route:
+            body.extend(
+                struct.pack(
+                    "<iiH",
+                    _i32(round(float(waypoint.get("longitude", 0.0)) * 1e7)),
+                    _i32(round(float(waypoint.get("latitude", 0.0)) * 1e7)),
+                    _u16(round(float(waypoint.get("expected_speed", 0.0)) * 10)),
+                )
+            )
+        return header + bytes(body)
+
+    if topic == MANUAL_SELECTION_REQUEST_TOPIC:
+        candidates = payload.get("candidate_targets") or []
+        header = struct.pack(
+            "<64sBH",
+            _fit_ascii(str(payload.get("task_id") or ""), 64),
+            _u16(payload.get("timeout_sec", 0)) & 0xFF,
+            _u16(len(candidates)),
+        )
+        body = bytearray()
+        for item in candidates[:8]:
+            body.extend(
+                struct.pack(
+                    "<64sIHB",
+                    _fit_ascii(str(item.get("target_id") or ""), 64),
+                    _u32(item.get("target_batch_no", 0)),
+                    _u16(item.get("target_type_code", 0)),
+                    _u16(item.get("military_civil_attr", 0)) & 0xFF,
+                )
+            )
+        return header + bytes(body)
+
+    if topic == MANUAL_SWITCH_REQUEST_TOPIC:
+        candidates = payload.get("new_candidate_targets") or []
+        header = struct.pack(
+            "<64s64sBH",
+            _fit_ascii(str(payload.get("task_id") or ""), 64),
+            _fit_ascii(str(payload.get("current_target_id") or ""), 64),
+            _u16(payload.get("timeout_sec", 0)) & 0xFF,
+            _u16(len(candidates)),
+        )
+        body = bytearray()
+        for item in candidates[:8]:
+            body.extend(
+                struct.pack(
+                    "<64sIHB",
+                    _fit_ascii(str(item.get("target_id") or ""), 64),
+                    _u32(item.get("target_batch_no", 0)),
+                    _u16(item.get("target_type_code", 0)),
+                    _u16(item.get("military_civil_attr", 0)) & 0xFF,
+                )
+            )
+        return header + bytes(body)
+
+    if topic == ELECTRO_OPTICAL_LINKAGE_CMD_TOPIC:
+        return struct.pack(
+            "<HIBBI16s",
+            _u16(payload.get("task_type", 0)),
+            _u32(payload.get("task_no", 1)),
+            _u16(payload.get("task_status", 0)) & 0xFF,
+            _u16(payload.get("dispatch_task_type", 1)) & 0xFF,
+            _u32(payload.get("target_batch_no", 0)),
+            _fit_ascii(str(payload.get("reserved_ext") or ""), 16),
+        )
+
+    if topic == STREAM_MEDIA_PARAM_TOPIC:
+        return struct.pack(
+            "<64sBBBB256s256s32s",
+            _fit_ascii(str(payload.get("task_id") or ""), 64),
+            _u16(payload.get("task_type", 0)) & 0xFF,
+            _u16(payload.get("media_event_type", 0)) & 0xFF,
+            _u16(payload.get("media_type", 0)) & 0xFF,
+            _u16(payload.get("media_status", 0)) & 0xFF,
+            _fit_ascii(str(payload.get("media_access_path") or ""), 256),
+            _fit_ascii(str(payload.get("snapshot_url") or ""), 256),
+            b"\x00" * 32,
         )
 
     return str(payload).encode("utf-8")

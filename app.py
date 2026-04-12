@@ -26,15 +26,15 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="cc_me_tracking_monitor_service",
+    title="cc_mp_tracking_monitor_service",
     version="0.4.0",
-    description="Tracking monitor service aligned with W5 v4 API/DDS contract.",
-    docs_url="/api/swagger-ui/index.html",
+    description="Tracking monitor service aligned with W5 v6 API/DDS contract.",
+    docs_url="/api/swagger_ui/index.html",
     openapi_url="/api/swagger.json",
     lifespan=lifespan,
 )
 
-app.include_router(task_router, prefix="/api/v1/tasks", tags=["tasks"])
+app.include_router(task_router, prefix="/api/v1", tags=["tasks"])
 app.include_router(spec_router, prefix="/api/v1", tags=["spec-apis"])
 app.include_router(mock_dds_router, prefix="/mock/dds", tags=["mock-dds"])
 app.include_router(mock_collaboration_router, prefix="/mock/collaboration", tags=["mock-collaboration"])
@@ -47,7 +47,7 @@ def root():
         "code": 200,
         "message": "success",
         "data": {
-            "service": "cc_me_tracking_monitor_service",
+            "service": "cc_mp_tracking_monitor_service",
             "version": "0.4.0",
         },
     }

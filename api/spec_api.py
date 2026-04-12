@@ -33,7 +33,7 @@ def get_media_stream_access(
     return resp
 
 
-@router.post("/tasks/manual-selection/feedback")
+@router.post("/manual_selection/feedback")
 def receive_manual_selection_feedback(req: ManualSelectionFeedbackRequest):
     try:
         task_service.apply_manual_selection_feedback(req)
@@ -46,7 +46,7 @@ def receive_manual_selection_feedback(req: ManualSelectionFeedbackRequest):
     return ok({"task_id": req.task_id, "feedback_received": True})
 
 
-@router.post("/tasks/manual-switch/feedback")
+@router.post("/manual_switch/feedback")
 def receive_manual_switch_feedback(req: ManualSwitchFeedbackRequest):
     try:
         task_service.apply_manual_switch_feedback(req)

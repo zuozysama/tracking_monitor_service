@@ -1,25 +1,25 @@
-﻿runtime:
+runtime:
   mode: mock
   platform: win
-  domain_id: 0
+  domain_id: "001"
   qos_file: config/dds_qos.xml
   license_file: ""
-  participant_name: cc_me_tracking_monitor_service
+  participant_name: cc_mp_tracking_monitor_service
 
 topics:
-  task_update_topic:
+  cc_mp_tracking_monitor_service.v1.task_update_topic:
     qos_profile: default_reliable
-  preplan_result_topic:
+  cc_mp_tracking_monitor_service.v1.preplan_result_topic:
     qos_profile: default_reliable
-  manual_selection_request_topic:
+  cc_mp_tracking_monitor_service.v1.manual_selection_request_topic:
     qos_profile: default_reliable
-  manual_switch_request_topic:
+  cc_mp_tracking_monitor_service.v1.manual_switch_request_topic:
     qos_profile: default_reliable
-  electro_optical_linkage_cmd_topic:
+  cc_mp_tracking_monitor_service.v1.electro_optical_linkage_cmd_topic:
     qos_profile: default_reliable
-  stream_media_param_topic:
+  cc_mp_tracking_monitor_service.v1.stream_media_param_topic:
     qos_profile: default_reliable
-  ownship_navigation_topic:
+  cc_mp_tracking_monitor_service.v1.ownship_navigation_topic:
     qos_profile: default_reliable
-  target_perception_topic:
+  cc_mp_tracking_monitor_service.v1.target_perception_topic:
     qos_profile: default_reliable

@@ -1,4 +1,4 @@
-# Pinggao Container Cloud Deployment (DDS Built-in Image)
+﻿# Pinggao Container Cloud Deployment (DDS Built-in Image)
 
 ## 1) Scope
 
@@ -20,13 +20,13 @@ The image already contains:
 ## 2) Build Image
 
 ```bash
-docker build -t cc_me_tracking_monitor_service:real .
+docker build -t cc_mp_tracking_monitor_service:real .
 ```
 
 Use cloud base image when needed:
 
 ```bash
-docker build --build-arg BASE_IMAGE=cc-me-formation:dds-arm64-slim -t cc_me_tracking_monitor_service:real .
+docker build --build-arg BASE_IMAGE=cc-me-formation:dds-arm64-slim -t cc_mp_tracking_monitor_service:real .
 ```
 
 ## 3) Container Cloud UI Settings
@@ -71,3 +71,4 @@ If production needs a different QoS/license file, mount files into `/app/config`
 
 - `DDS_QOS_FILE=/app/config/xxx.xml`
 - `DDS_LICENSE_FILE=/app/config/xxx.lic`
+

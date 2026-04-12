@@ -204,7 +204,7 @@ Content-Type: {{json}}
 GET {{baseUrl}}/mock/collaboration/manual-selection/requests
 
 ### 10. Inspect manual selection status (auto-send + 20s timer state)
-GET {{baseUrl}}/api/v1/tasks/{{taskId}}/manual-selection/status
+GET {{baseUrl}}/api/v1/{{taskId}}/manual_selection/status
 
 ### 11. Choose one branch below (A or B), do not execute both
 
@@ -216,7 +216,7 @@ GET {{baseUrl}}/api/v1/tasks/{{taskId}}/manual-selection/status
 ### A1. Send feedback within 20 seconds from request_time in status endpoint
 ### Pick a non-top candidate intentionally to verify override
 ### Note: feedback_time is recorded only; timeout check uses server current time.
-POST {{baseUrl}}/api/v1/tasks/manual-selection/feedback
+POST {{baseUrl}}/api/v1/manual_selection/feedback
 Content-Type: {{json}}
 
 {
@@ -245,7 +245,7 @@ GET {{baseUrl}}/mock/autonomy/tracking/logs
 GET {{baseUrl}}/api/v1/tasks/{{taskId}}/result
 
 ### B3. Verify status shows pending=false after timeout
-GET {{baseUrl}}/api/v1/tasks/{{taskId}}/manual-selection/status
+GET {{baseUrl}}/api/v1/{{taskId}}/manual_selection/status
 
 ### B4. Inspect autonomy tracking dispatch after timeout defaulting
 GET {{baseUrl}}/mock/autonomy/tracking/logs
@@ -304,6 +304,7 @@ Content-Type: {{json}}
 {
   "reason": "cleanup"
 }
+
 
 
 

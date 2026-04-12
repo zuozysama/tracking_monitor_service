@@ -71,7 +71,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\run_pub_test.ps1
 
 启动后可访问：
 
-- Swagger UI: [http://127.0.0.1:8080/api/swagger-ui/index.html](http://127.0.0.1:8080/api/swagger-ui/index.html)
+- Swagger UI: [http://127.0.0.1:8080/api/swagger_ui/index.html](http://127.0.0.1:8080/api/swagger_ui/index.html)
 - OpenAPI JSON: [http://127.0.0.1:8080/api/swagger.json](http://127.0.0.1:8080/api/swagger.json)
 
 ## 项目结构
@@ -94,15 +94,15 @@ powershell -ExecutionPolicy Bypass -File .\scripts\run_pub_test.ps1
 - `POST /api/v1/tasks`
 - `POST /api/v1/tasks/{task_id}/terminate`
 - `GET /api/v1/media/stream/access`
-- `POST /api/v1/tasks/manual-selection/feedback`
-- `POST /api/v1/tasks/manual-switch/feedback`
+- `POST /api/v1/manual_selection/feedback`
+- `POST /api/v1/manual_switch/feedback`
 
 人工筛选/切换请求由服务通过 DDS 主题发布（`manual_selection_request_topic`、`manual_switch_request_topic`），不提供对应 REST 合同接口。
 
 ### 状态类接口
 
-- `GET /api/v1/tasks/{task_id}/status`
-- `GET /api/v1/tasks/{task_id}/output`
+- `GET /api/v1/{task_id}/status`
+- `GET /api/v1/{task_id}/output`
 - `GET /api/v1/tasks/{task_id}/result`
 - `GET /api/v1/sonar/match/status?task_id=...`
 - `GET /api/v1/healthz`
@@ -276,8 +276,8 @@ curl -X POST http://127.0.0.1:8080/api/v1/tasks \
 ### 5. 查询状态与正式输出
 
 ```bash
-curl http://127.0.0.1:8080/api/v1/tasks/task-tracking-001/status
-curl http://127.0.0.1:8080/api/v1/tasks/task-tracking-001/output
+curl http://127.0.0.1:8080/api/v1/task-tracking-001/status
+curl http://127.0.0.1:8080/api/v1/task-tracking-001/output
 curl http://127.0.0.1:8080/api/v1/tasks/task-tracking-001/result
 ```
 
@@ -318,7 +318,7 @@ curl http://127.0.0.1:8080/mock/collaboration/dds/publish-logs
 ### 提交人工筛选反馈
 
 ```bash
-curl -X POST http://127.0.0.1:8080/api/v1/tasks/manual-selection/feedback \
+curl -X POST http://127.0.0.1:8080/api/v1/manual_selection/feedback \
   -H "Content-Type: application/json" \
   -d '{
     "task_id": "task-tracking-001",
@@ -338,7 +338,7 @@ curl http://127.0.0.1:8080/mock/collaboration/dds/publish-logs
 ### 提交人工切换反馈
 
 ```bash
-curl -X POST http://127.0.0.1:8080/api/v1/tasks/manual-switch/feedback \
+curl -X POST http://127.0.0.1:8080/api/v1/manual_switch/feedback \
   -H "Content-Type: application/json" \
   -d '{
     "task_id": "task-tracking-001",
@@ -411,6 +411,8 @@ Invoke-RestMethod `
 - 将 mock 日志持久化到 Redis 或数据库
 - 增加接口测试用例与任务场景回归测试
 - 增加 Dockerfile、启动脚本和麒麟系统部署说明
+
+
 
 
 

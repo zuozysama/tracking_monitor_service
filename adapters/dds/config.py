@@ -38,7 +38,7 @@ def load_dds_runtime_config() -> DdsRuntimeConfig:
     license_file = os.getenv("DDS_LICENSE_FILE", str(runtime_cfg.get("license_file", "")))
     participant_name = os.getenv(
         "DDS_PARTICIPANT_NAME",
-        str(runtime_cfg.get("participant_name", "cc_me_tracking_monitor_service")),
+        str(runtime_cfg.get("participant_name", "cc_mp_tracking_monitor_service")),
     )
 
     return DdsRuntimeConfig(

@@ -1,13 +1,15 @@
 from domain.enums import FinishReason, TaskStatus, TaskType
 
-TASK_UPDATE_TOPIC = "task_update_topic"
-PREPLAN_RESULT_TOPIC = "preplan_result_topic"
-MANUAL_SELECTION_REQUEST_TOPIC = "manual_selection_request_topic"
-MANUAL_SWITCH_REQUEST_TOPIC = "manual_switch_request_topic"
-ELECTRO_OPTICAL_LINKAGE_CMD_TOPIC = "electro_optical_linkage_cmd_topic"
-STREAM_MEDIA_PARAM_TOPIC = "stream_media_param_topic"
-OWNSHIP_NAVIGATION_TOPIC = "ownship_navigation_topic"
-TARGET_PERCEPTION_TOPIC = "target_perception_topic"
+TOPIC_PREFIX = "cc_mp_tracking_monitor_service.v1."
+
+TASK_UPDATE_TOPIC = TOPIC_PREFIX + "task_update_topic"
+PREPLAN_RESULT_TOPIC = TOPIC_PREFIX + "preplan_result_topic"
+MANUAL_SELECTION_REQUEST_TOPIC = TOPIC_PREFIX + "manual_selection_request_topic"
+MANUAL_SWITCH_REQUEST_TOPIC = TOPIC_PREFIX + "manual_switch_request_topic"
+ELECTRO_OPTICAL_LINKAGE_CMD_TOPIC = TOPIC_PREFIX + "electro_optical_linkage_cmd_topic"
+STREAM_MEDIA_PARAM_TOPIC = TOPIC_PREFIX + "stream_media_param_topic"
+OWNSHIP_NAVIGATION_TOPIC = TOPIC_PREFIX + "ownship_navigation_topic"
+TARGET_PERCEPTION_TOPIC = TOPIC_PREFIX + "target_perception_topic"
 
 TASK_TYPE_CODE_MAP = {
     TaskType.PATROL: 1,
