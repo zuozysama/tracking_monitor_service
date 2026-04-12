@@ -4,42 +4,33 @@ from clients.media_client import media_client
 from clients.sonar_client import sonar_client
 from domain.models import (
     ManualSelectionFeedbackRequest,
-    ManualSelectionRequest,
     ManualSwitchFeedbackRequest,
-    ManualSwitchRequest,
     MediaStreamAccessRequest,
 )
 from domain.response import ok
 from services.task_service import task_service
 from store.collaboration_store import collaboration_store
+from utils.time_utils import utc_now
 
 router = APIRouter()
 
 
-@router.post("/media/stream/access")
-def get_media_stream_access(req: MediaStreamAccessRequest):
+@router.get("/media/stream/access")
+def get_media_stream_access(
+    task_id: str = Query(...),
+    stream_type: str = Query(...),
+    channel_id: str = Query(...),
+    media_protocol: str = Query(...),
+):
+    req = MediaStreamAccessRequest(
+        task_id=task_id,
+        stream_type=stream_type,
+        channel_id=channel_id,
+        media_protocol=media_protocol,
+        request_time=utc_now(),
+    )
     resp = media_client.get_stream_access(req)
     return resp
-
-
-@router.post("/tasks/manual-selection/request")
-def request_manual_selection(req: ManualSelectionRequest):
-    try:
-        task_service.register_manual_selection_request(req)
-    except LookupError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    collaboration_store.append_manual_selection_request(req.model_dump(mode="json"))
-    return ok({"accepted": True})
-
-
-@router.post("/tasks/manual-switch/request")
-def request_manual_switch(req: ManualSwitchRequest):
-    try:
-        task_service.register_manual_switch_request(req)
-    except LookupError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    collaboration_store.append_manual_switch_request(req.model_dump(mode="json"))
-    return ok({"accepted": True})
 
 
 @router.post("/tasks/manual-selection/feedback")

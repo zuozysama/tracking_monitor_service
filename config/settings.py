@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class FixedTrackingConfig(BaseModel):
@@ -33,6 +33,14 @@ class TrackingFilterConfig(BaseModel):
     military_civil_preferred_weight: float = 10.0
     range_score_weight: float = 1.0
     bearing_score_weight: float = 0.5
+    threat_score_weight: float = 30.0
+    value_score_weight: float = 20.0
+
+    threat_level_max: float = 5.0
+    default_target_type_value_score: float = 0.0
+    default_military_civil_value_score: float = 0.0
+    target_type_value_scores: Dict[int, float] = Field(default_factory=dict)
+    military_civil_value_scores: Dict[int, float] = Field(default_factory=dict)
 
     sector_filter_enabled: bool = True
     sector_center_deg: float = 0.0

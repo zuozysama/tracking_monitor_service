@@ -2,11 +2,26 @@ import json
 from datetime import datetime, timedelta
 from typing import Optional
 
+from adapters.dds import get_dds_adapter
 from clients.autonomy_client import autonomy_client
 from clients.media_client import media_client
 from clients.optical_linkage_client import optical_linkage_client
 from clients.planning_client import planning_client
 from clients.sonar_client import sonar_client
+from domain.dds_contract import (
+    ELECTRO_OPTICAL_LINKAGE_CMD_TOPIC,
+    FINISH_REASON_CODE_MAP,
+    MANUAL_SELECTION_REQUEST_TOPIC,
+    MANUAL_SWITCH_REQUEST_TOPIC,
+    PHASE_CODE_MAP,
+    PREPLAN_RESULT_TOPIC,
+    RESULT_TYPE_CODE_MAP,
+    STREAM_MEDIA_PARAM_TOPIC,
+    TASK_STATUS_CODE_MAP,
+    TASK_TYPE_CODE_MAP,
+    TASK_UPDATE_TOPIC,
+    UPDATE_TYPE_CODE_MAP,
+)
 from domain.enums import TaskStatus, FinishReason, TaskType
 from domain.models import (
     AutonomyPatrolDispatch,
@@ -31,6 +46,8 @@ from utils.config_utils import (
 from utils.geo_utils import haversine_distance_m
 from utils.time_utils import utc_now
 
+dds_adapter = get_dds_adapter()
+
 
 def _seconds_since(last_time: Optional[datetime]) -> Optional[float]:
     if last_time is None:
@@ -42,6 +59,40 @@ def _heading_diff_deg(a: float, b: float) -> float:
     return abs((a - b + 180.0) % 360.0 - 180.0)
 
 class CollaborationService:
+    def _publish_dds(self, topic: str, payload: dict) -> None:
+        dds_adapter.publish(topic=topic, payload=payload)
+
+    def _resolve_result_type(self, task: TaskContext) -> Optional[str]:
+        if task.patrol_plan_output is not None:
+            return "patrol"
+        if task.tracking_plan_output is not None:
+            return "tracking"
+        if task.fixed_tracking_output is not None:
+            return "fixed_tracking"
+        if task.underwater_search_output is not None:
+            return "underwater_search"
+        if task.preplan_output is not None:
+            return "preplan"
+        return None
+
+    def _publish_task_update_dds(self, task: TaskContext, update_type_key: str) -> None:
+        result_type = self._resolve_result_type(task)
+        payload = {
+            "task_id": task.task_id,
+            "task_type": TASK_TYPE_CODE_MAP.get(task.task_type, 0),
+            "task_status": TASK_STATUS_CODE_MAP.get(task.status, 0),
+            "execution_phase": PHASE_CODE_MAP.get(task.execution_phase, 0),
+            "update_type": UPDATE_TYPE_CODE_MAP.get(update_type_key, 0),
+            "result_type": RESULT_TYPE_CODE_MAP.get(result_type, 0),
+            "current_target_batch_no": task.current_target_batch_no or 0,
+            "finish_reason": FINISH_REASON_CODE_MAP.get(task.finish_reason, 0),
+        }
+        if task.tracking_plan_output is not None:
+            payload["rel_range_m"] = task.tracking_plan_output.rel_range_m or 0
+            payload["relative_bearing_deg"] = task.tracking_plan_output.relative_bearing_deg or 0
+            payload["expected_speed"] = task.tracking_plan_output.expected_speed or 0
+        self._publish_dds(TASK_UPDATE_TOPIC, payload)
+
     def _build_manual_selection_candidates(self, task: TaskContext) -> list[TargetInfo]:
         candidates = task.candidate_targets or []
         top_candidates = candidates[:4]
@@ -79,6 +130,10 @@ class CollaborationService:
             candidate_targets=self._build_manual_selection_candidates(task),
         )
         collaboration_store.append_manual_selection_request(payload.model_dump(mode="json"))
+        self._publish_dds(
+            MANUAL_SELECTION_REQUEST_TOPIC,
+            payload.model_dump(mode="json"),
+        )
 
         now = utc_now()
         task.manual_selection_request_sent = True
@@ -173,6 +228,10 @@ class CollaborationService:
             new_candidate_targets=higher_candidates,
         )
         collaboration_store.append_manual_switch_request(payload.model_dump(mode="json"))
+        self._publish_dds(
+            MANUAL_SWITCH_REQUEST_TOPIC,
+            payload.model_dump(mode="json"),
+        )
 
         now = utc_now()
         task.manual_switch_request_sent = True
@@ -323,6 +382,7 @@ class CollaborationService:
             return
 
         planning_client.report_stage(task.task_id, stage)
+        self._publish_task_update_dds(task, update_type_key="phase_only")
         task.last_reported_stage = stage
         task_store.update_task(task)
 
@@ -358,6 +418,17 @@ class CollaborationService:
             return
 
         planning_client.report_plan(task.task_id, plan_type, payload)
+        self._publish_task_update_dds(task, update_type_key="result_only")
+        if plan_type == "preplan":
+            self._publish_dds(
+                PREPLAN_RESULT_TOPIC,
+                {
+                    "task_id": task.task_id,
+                    "task_type": TASK_TYPE_CODE_MAP.get(TaskType.PREPLAN, 5),
+                    "waypoint_count": len(task.preplan_output.planned_route) if task.preplan_output else 0,
+                    "planned_route": payload.get("planned_route", []),
+                },
+            )
         task.last_reported_plan_signature = signature
         task_store.update_task(task)
 
@@ -457,6 +528,10 @@ class CollaborationService:
             return
 
         optical_linkage_client.post_command(task.task_id, payload)
+        self._publish_dds(
+            ELECTRO_OPTICAL_LINKAGE_CMD_TOPIC,
+            payload.model_dump(mode="json"),
+        )
         if task_status == 1:
             media_client.get_stream_access(
                 MediaStreamAccessRequest(
@@ -516,12 +591,32 @@ class CollaborationService:
             if elapsed is None or elapsed >= media.photo_interval_sec:
                 media_client.capture_photo(task.task_id)
                 task.last_photo_time = utc_now()
+                self._publish_dds(
+                    STREAM_MEDIA_PARAM_TOPIC,
+                    {
+                        "task_id": task.task_id,
+                        "task_type": TASK_TYPE_CODE_MAP.get(task.task_type, 0),
+                        "media_event_type": 1,
+                        "media_type": 1,
+                        "media_status": 3,
+                    },
+                )
 
         if media.video_enabled:
             elapsed = _seconds_since(task.last_video_time)
             if elapsed is None or elapsed >= media.video_interval_sec:
                 media_client.record_video(task.task_id, media.video_duration_sec)
                 task.last_video_time = utc_now()
+                self._publish_dds(
+                    STREAM_MEDIA_PARAM_TOPIC,
+                    {
+                        "task_id": task.task_id,
+                        "task_type": TASK_TYPE_CODE_MAP.get(task.task_type, 0),
+                        "media_event_type": 2,
+                        "media_type": 2,
+                        "media_status": 3,
+                    },
+                )
 
         task_store.update_task(task)
 

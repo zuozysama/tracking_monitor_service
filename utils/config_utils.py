@@ -41,6 +41,8 @@ def get_tracking_filter_identity_weights() -> dict:
         "military_civil_preferred": settings.tracking.filter.military_civil_preferred_weight,
         "range": settings.tracking.filter.range_score_weight,
         "bearing": settings.tracking.filter.bearing_score_weight,
+        "threat": settings.tracking.filter.threat_score_weight,
+        "value": settings.tracking.filter.value_score_weight,
     }
 
 
@@ -78,6 +80,26 @@ def is_tracking_hysteresis_enabled() -> bool:
 
 def get_tracking_hysteresis_margin() -> float:
     return settings.tracking.filter.hysteresis_margin
+
+
+def get_tracking_threat_level_max() -> float:
+    return settings.tracking.filter.threat_level_max
+
+
+def get_tracking_default_target_type_value_score() -> float:
+    return settings.tracking.filter.default_target_type_value_score
+
+
+def get_tracking_default_military_civil_value_score() -> float:
+    return settings.tracking.filter.default_military_civil_value_score
+
+
+def get_tracking_target_type_value_scores() -> dict:
+    return settings.tracking.filter.target_type_value_scores
+
+
+def get_tracking_military_civil_value_scores() -> dict:
+    return settings.tracking.filter.military_civil_value_scores
 
 
 def get_tracking_arrival_tolerance_m() -> float:

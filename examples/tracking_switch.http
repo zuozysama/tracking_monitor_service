@@ -4,8 +4,8 @@
 
 ### Tracking manual switch staged test
 ### Focus APIs:
-### 1) auto-generated /tasks/manual-switch/request record (query by GET)
-### 2) POST /tasks/manual-switch/feedback
+### 1) auto-generated manual_switch_request_topic DDS publish log (query by GET /mock/collaboration/dds/publish-logs)
+### 2) POST /api/v1/tasks/manual-switch/feedback
 ###
 ### Boundary with select scenario:
 ### - select: no explicit designated target, system asks for manual selection.
@@ -61,7 +61,7 @@ Content-Type: {{json}}
 }
 
 ### 4. Create tracking task with explicit designated target (switch scenario precondition)
-POST {{baseUrl}}/tasks
+POST {{baseUrl}}/api/v1/tasks
 Content-Type: {{json}}
 
 {
@@ -101,7 +101,7 @@ Content-Type: {{json}}
 }
 
 ### 5. Simulate planning feasibility callback
-POST {{baseUrl}}/tasks/callbacks/planning/feasibility
+POST {{baseUrl}}/api/v1/tasks/callbacks/planning/feasibility
 Content-Type: {{json}}
 
 {
@@ -128,7 +128,7 @@ Content-Type: {{json}}
 
 ### 7. Verify stage-1 tracking target
 ### Expected: current_target_id = target-origin-001
-GET {{baseUrl}}/tasks/{{taskId}}/result
+GET {{baseUrl}}/api/v1/tasks/{{taskId}}/result
 
 ### 8. Stage-2 inject higher-value targets (now multiple candidates exist)
 POST {{baseUrl}}/mock/dds/perception
@@ -210,14 +210,14 @@ Content-Type: {{json}}
 
 ### 9. Inspect result after stage-2 perception
 ### Expected: still tracking original target until switch feedback
-GET {{baseUrl}}/tasks/{{taskId}}/result
+GET {{baseUrl}}/api/v1/tasks/{{taskId}}/result
 
 ### 10. Inspect auto-generated manual switch request logs
 ### If empty, wait 1-2 seconds and query again (decision loop is 1s)
 GET {{baseUrl}}/mock/collaboration/manual-switch/requests
 
 ### 11. Inspect manual switch status (auto-send + 20s timer)
-GET {{baseUrl}}/tasks/{{taskId}}/manual-switch/status
+GET {{baseUrl}}/api/v1/tasks/{{taskId}}/manual-switch/status
 
 ### 12. Choose one branch below (A or B), do not execute both
 
@@ -228,10 +228,10 @@ GET {{baseUrl}}/tasks/{{taskId}}/manual-switch/status
 ### A1. Do not send feedback. Wait at least 20 seconds from request_time in status endpoint.
 
 ### A2. Verify task keeps original target
-GET {{baseUrl}}/tasks/{{taskId}}/result
+GET {{baseUrl}}/api/v1/tasks/{{taskId}}/result
 
 ### A3. Re-check manual switch status (pending should be false)
-GET {{baseUrl}}/tasks/{{taskId}}/manual-switch/status
+GET {{baseUrl}}/api/v1/tasks/{{taskId}}/manual-switch/status
 
 ### ====================
 ### Branch B: feedback in 20s -> switch to designated target
@@ -239,7 +239,7 @@ GET {{baseUrl}}/tasks/{{taskId}}/manual-switch/status
 
 ### B1. Send manual switch feedback within 20 seconds
 ### Note: feedback_time is recorded only; timeout check uses server current time.
-POST {{baseUrl}}/tasks/manual-switch/feedback
+POST {{baseUrl}}/api/v1/tasks/manual-switch/feedback
 Content-Type: {{json}}
 
 {
@@ -253,10 +253,10 @@ Content-Type: {{json}}
 GET {{baseUrl}}/mock/collaboration/manual-switch/feedbacks
 
 ### B3. Verify switched target
-GET {{baseUrl}}/tasks/{{taskId}}/result
+GET {{baseUrl}}/api/v1/tasks/{{taskId}}/result
 
 ### B4. Re-check manual switch status (feedback_received should be true)
-GET {{baseUrl}}/tasks/{{taskId}}/manual-switch/status
+GET {{baseUrl}}/api/v1/tasks/{{taskId}}/manual-switch/status
 
 ### 13. Inspect autonomy tracking logs
 GET {{baseUrl}}/mock/autonomy/tracking/logs
@@ -282,11 +282,14 @@ GET {{baseUrl}}/mock/collaboration/optical-linkage/commands
 GET {{baseUrl}}/mock/collaboration/media/stream-access
 
 ### 16. Cleanup task
-POST {{baseUrl}}/tasks/{{taskId}}/terminate
+POST {{baseUrl}}/api/v1/tasks/{{taskId}}/terminate
 Content-Type: {{json}}
 
 {
   "reason": "cleanup"
 }
+
+
+
 
 

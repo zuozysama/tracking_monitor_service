@@ -1,6 +1,6 @@
-# Tracking Monitor Service
+﻿# Tracking Monitor Service
 
-跟踪监视服务原型工程。当前版本以 `FastAPI + mock DDS/mock 外部服务` 的方式运行，目标是先与《W5-附件1-跟踪监视服务v1》中的接口口径对齐，便于 Windows 环境联调；后续再进一步整理 Docker 与麒麟系统部署方案。
+跟踪监视服务原型工程。当前版本以 `FastAPI + mock DDS/mock 外部服务` 的方式运行，目标是与《W5-附件1-跟踪监视服务v4》接口口径对齐，便于 Windows 环境联调；后续再进一步整理 Docker 与麒麟系统部署方案。
 
 ## 当前状态
 
@@ -24,6 +24,15 @@
 
 依赖见 [requirements.txt](E:/projects/tracking_monitor_service/requirements.txt)。
 
+## DDS 运行模式
+
+项目新增 DDS 适配层，支持：
+
+- `DDS_MODE=mock`：仅写入 `/mock/collaboration/dds/publish-logs`
+- `DDS_MODE=real`：进入真实 DDS 适配器（当前为占位实现，待接入厂商 `ljdds_python` 实际 API）
+
+默认配置文件：`config/dds_settings.yaml`，可被环境变量覆盖。
+
 ## 启动方式
 
 先安装依赖：
@@ -38,10 +47,32 @@ pip install -r requirements.txt
 uvicorn app:app --reload --host 0.0.0.0 --port 8080
 ```
 
+也可以使用一键脚本（Windows PowerShell）：
+
+```powershell
+# 启动服务（自动配置 DDS 环境变量）
+powershell -ExecutionPolicy Bypass -File .\scripts\run_service.ps1
+
+# 发送 DDS 联调测试数据
+powershell -ExecutionPolicy Bypass -File .\scripts\run_pub_test.ps1
+```
+
+## 视频取证处理
+
+当前服务在光电联动打开后，会按任务 `stream_media_param` 参数自动执行：
+
+- 截图：`photo_enabled=true` + `photo_interval_sec`
+- 录像：`video_enabled=true` + `video_interval_sec` + `video_duration_sec`
+
+媒体处理依赖本机 `ffmpeg`（可通过环境变量配置）：
+
+- `FFMPEG_BIN`：ffmpeg 可执行程序路径（默认 `ffmpeg`）
+- `MEDIA_OUTPUT_DIR`：输出目录（默认 `artifacts/media`）
+
 启动后可访问：
 
-- Swagger UI: [http://127.0.0.1:8080/docs](http://127.0.0.1:8080/docs)
-- OpenAPI JSON: [http://127.0.0.1:8080/openapi.json](http://127.0.0.1:8080/openapi.json)
+- Swagger UI: [http://127.0.0.1:8080/api/swagger-ui/index.html](http://127.0.0.1:8080/api/swagger-ui/index.html)
+- OpenAPI JSON: [http://127.0.0.1:8080/api/swagger.json](http://127.0.0.1:8080/api/swagger.json)
 
 ## 项目结构
 
@@ -60,20 +91,21 @@ uvicorn app:app --reload --host 0.0.0.0 --port 8080
 
 ### 控制类接口
 
-- `POST /tasks`
-- `POST /tasks/{task_id}/terminate`
-- `POST /media/stream/access`
-- `POST /tasks/manual-selection/request`
-- `POST /tasks/manual-switch/request`
-- `POST /tasks/manual-selection/feedback`
-- `POST /tasks/manual-switch/feedback`
+- `POST /api/v1/tasks`
+- `POST /api/v1/tasks/{task_id}/terminate`
+- `GET /api/v1/media/stream/access`
+- `POST /api/v1/tasks/manual-selection/feedback`
+- `POST /api/v1/tasks/manual-switch/feedback`
+
+人工筛选/切换请求由服务通过 DDS 主题发布（`manual_selection_request_topic`、`manual_switch_request_topic`），不提供对应 REST 合同接口。
 
 ### 状态类接口
 
-- `GET /tasks/{task_id}/status`
-- `GET /tasks/{task_id}/output`
-- `GET /tasks/{task_id}/result`
-- `GET /sonar/match/status?task_id=...`
+- `GET /api/v1/tasks/{task_id}/status`
+- `GET /api/v1/tasks/{task_id}/output`
+- `GET /api/v1/tasks/{task_id}/result`
+- `GET /api/v1/sonar/match/status?task_id=...`
+- `GET /api/v1/healthz`
 
 ### mock DDS 输入接口
 
@@ -170,7 +202,7 @@ curl -X POST http://127.0.0.1:8080/mock/dds/perception \
 #### 4.1 跟踪任务示例
 
 ```bash
-curl -X POST http://127.0.0.1:8080/tasks \
+curl -X POST http://127.0.0.1:8080/api/v1/tasks \
   -H "Content-Type: application/json" \
   -d '{
     "task_id": "task-tracking-001",
@@ -219,7 +251,7 @@ curl -X POST http://127.0.0.1:8080/tasks \
 #### 4.2 预规划任务示例
 
 ```bash
-curl -X POST http://127.0.0.1:8080/tasks \
+curl -X POST http://127.0.0.1:8080/api/v1/tasks \
   -H "Content-Type: application/json" \
   -d '{
     "task_id": "task-preplan-001",
@@ -244,9 +276,9 @@ curl -X POST http://127.0.0.1:8080/tasks \
 ### 5. 查询状态与正式输出
 
 ```bash
-curl http://127.0.0.1:8080/tasks/task-tracking-001/status
-curl http://127.0.0.1:8080/tasks/task-tracking-001/output
-curl http://127.0.0.1:8080/tasks/task-tracking-001/result
+curl http://127.0.0.1:8080/api/v1/tasks/task-tracking-001/status
+curl http://127.0.0.1:8080/api/v1/tasks/task-tracking-001/output
+curl http://127.0.0.1:8080/api/v1/tasks/task-tracking-001/result
 ```
 
 ### 6. 查看 mock 规划上报与自主航行下发
@@ -262,7 +294,7 @@ curl http://127.0.0.1:8080/mock/autonomy/tracking/logs
 ### 终止任务
 
 ```bash
-curl -X POST http://127.0.0.1:8080/tasks/task-tracking-001/terminate \
+curl -X POST http://127.0.0.1:8080/api/v1/tasks/task-tracking-001/terminate \
   -H "Content-Type: application/json" \
   -d '{
     "reason": "swagger手动结束测试"
@@ -272,51 +304,21 @@ curl -X POST http://127.0.0.1:8080/tasks/task-tracking-001/terminate \
 ### 获取视频流接入信息
 
 ```bash
-curl -X POST http://127.0.0.1:8080/media/stream/access \
-  -H "Content-Type: application/json" \
-  -d '{
-    "task_id": "task-tracking-001",
-    "stream_type": "optical_video",
-    "channel_id": "optical-001",
-    "media_protocol": "webrtc",
-    "request_time": "2026-03-24T10:01:20Z"
-  }'
+curl -X GET "http://127.0.0.1:8080/api/v1/media/stream/access?task_id=task-tracking-001&stream_type=optical_video&channel_id=optical-001&media_protocol=webrtc"
 ```
 
-### 发起人工筛选请求
+### 人工筛选请求（DDS 发布）
 
-```bash
-curl -X POST http://127.0.0.1:8080/tasks/manual-selection/request \
-  -H "Content-Type: application/json" \
-  -d '{
-    "task_id": "task-tracking-001",
-    "request_type": "manual_selection",
-    "timeout_sec": 10,
-    "candidate_targets": [
-      {
-        "target_id": "target-001",
-        "target_batch_no": 1,
-        "target_type_code": 106,
-        "threat_level": 2,
-        "target_name": "目标001",
-        "military_civil_attr": 1
-      },
-      {
-        "target_id": "target-002",
-        "target_batch_no": 2,
-        "target_type_code": 108,
-        "threat_level": 3,
-        "target_name": "目标002",
-        "military_civil_attr": 1
-      }
-    ]
-  }'
-```
+通过任务运行自动触发 manual_selection_request_topic，可通过以下接口查看模拟发布日志：
+
+`ash
+curl http://127.0.0.1:8080/mock/collaboration/dds/publish-logs
+` 
 
 ### 提交人工筛选反馈
 
 ```bash
-curl -X POST http://127.0.0.1:8080/tasks/manual-selection/feedback \
+curl -X POST http://127.0.0.1:8080/api/v1/tasks/manual-selection/feedback \
   -H "Content-Type: application/json" \
   -d '{
     "task_id": "task-tracking-001",
@@ -325,33 +327,18 @@ curl -X POST http://127.0.0.1:8080/tasks/manual-selection/feedback \
   }'
 ```
 
-### 发起人工切换请求
+### 人工切换请求（DDS 发布）
 
-```bash
-curl -X POST http://127.0.0.1:8080/tasks/manual-switch/request \
-  -H "Content-Type: application/json" \
-  -d '{
-    "task_id": "task-tracking-001",
-    "request_type": "manual_switch",
-    "timeout_sec": 10,
-    "current_target_id": "target-001",
-    "new_candidate_targets": [
-      {
-        "target_id": "target-003",
-        "target_batch_no": 3,
-        "target_type_code": 106,
-        "threat_level": 2,
-        "target_name": "目标003",
-        "military_civil_attr": 1
-      }
-    ]
-  }'
-```
+通过任务运行自动触发 manual_switch_request_topic，可通过以下接口查看模拟发布日志：
+
+`ash
+curl http://127.0.0.1:8080/mock/collaboration/dds/publish-logs
+` 
 
 ### 提交人工切换反馈
 
 ```bash
-curl -X POST http://127.0.0.1:8080/tasks/manual-switch/feedback \
+curl -X POST http://127.0.0.1:8080/api/v1/tasks/manual-switch/feedback \
   -H "Content-Type: application/json" \
   -d '{
     "task_id": "task-tracking-001",
@@ -364,7 +351,7 @@ curl -X POST http://127.0.0.1:8080/tasks/manual-switch/feedback \
 ### 查询声纳匹配状态
 
 ```bash
-curl "http://127.0.0.1:8080/sonar/match/status?task_id=task-underwater-001"
+curl "http://127.0.0.1:8080/api/v1/sonar/match/status?task_id=task-underwater-001"
 ```
 
 ### 设置 mock 声纳状态
@@ -400,7 +387,7 @@ $body = @{
 } | ConvertTo-Json -Depth 10
 
 Invoke-RestMethod `
-  -Uri "http://127.0.0.1:8080/tasks" `
+  -Uri "http://127.0.0.1:8080/api/v1/tasks" `
   -Method Post `
   -ContentType "application/json" `
   -Body $body
@@ -424,3 +411,6 @@ Invoke-RestMethod `
 - 将 mock 日志持久化到 Redis 或数据库
 - 增加接口测试用例与任务场景回归测试
 - 增加 Dockerfile、启动脚本和麒麟系统部署说明
+
+
+

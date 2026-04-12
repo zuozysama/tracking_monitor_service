@@ -18,7 +18,7 @@ GET {{baseUrl}}/
 ### ====================
 
 ### Create a basic tracking task
-POST {{baseUrl}}/tasks
+POST {{baseUrl}}/api/v1/tasks
 Content-Type: {{json}}
 
 {
@@ -65,56 +65,22 @@ Content-Type: {{json}}
 }
 
 ### Query task status
-GET {{baseUrl}}/tasks/{{taskId}}/status
+GET {{baseUrl}}/api/v1/tasks/{{taskId}}/status
 
 ### Query task formal output
-GET {{baseUrl}}/tasks/{{taskId}}/output
+GET {{baseUrl}}/api/v1/tasks/{{taskId}}/output
 
 ### Query task result detail
-GET {{baseUrl}}/tasks/{{taskId}}/result
+GET {{baseUrl}}/api/v1/tasks/{{taskId}}/result
 
 ### Request media stream access
-POST {{baseUrl}}/media/stream/access
-Content-Type: {{json}}
+GET {{baseUrl}}/api/v1/media/stream/access?task_id={{taskId}}&stream_type=optical_video&channel_id=optical-001&media_protocol=webrtc
 
-{
-  "task_id": "{{taskId}}",
-  "stream_type": "optical_video",
-  "channel_id": "optical-001",
-  "media_protocol": "webrtc",
-  "request_time": "2026-03-24T10:01:20Z"
-}
-
-### Send manual target selection request
-POST {{baseUrl}}/tasks/manual-selection/request
-Content-Type: {{json}}
-
-{
-  "task_id": "{{taskId}}",
-  "request_type": "manual_selection",
-  "timeout_sec": 10,
-  "candidate_targets": [
-    {
-      "target_id": "target-001",
-      "target_batch_no": 1,
-      "target_type_code": 106,
-      "threat_level": 2,
-      "target_name": "target-001",
-      "military_civil_attr": 1
-    },
-    {
-      "target_id": "target-002",
-      "target_batch_no": 2,
-      "target_type_code": 108,
-      "threat_level": 3,
-      "target_name": "target-002",
-      "military_civil_attr": 1
-    }
-  ]
-}
+### Observe manual target selection request DDS log
+GET {{baseUrl}}/mock/collaboration/dds/publish-logs
 
 ### Receive manual target selection feedback
-POST {{baseUrl}}/tasks/manual-selection/feedback
+POST {{baseUrl}}/api/v1/tasks/manual-selection/feedback
 Content-Type: {{json}}
 
 {
@@ -123,29 +89,11 @@ Content-Type: {{json}}
   "feedback_time": "2026-03-24T10:02:30Z"
 }
 
-### Send manual target switch request
-POST {{baseUrl}}/tasks/manual-switch/request
-Content-Type: {{json}}
-
-{
-  "task_id": "{{taskId}}",
-  "request_type": "manual_switch",
-  "timeout_sec": 10,
-  "current_target_id": "target-002",
-  "new_candidate_targets": [
-    {
-      "target_id": "target-003",
-      "target_batch_no": 3,
-      "target_type_code": 106,
-      "threat_level": 2,
-      "target_name": "target-003",
-      "military_civil_attr": 1
-    }
-  ]
-}
+### Observe manual target switch request DDS log
+GET {{baseUrl}}/mock/collaboration/dds/publish-logs
 
 ### Receive manual target switch feedback
-POST {{baseUrl}}/tasks/manual-switch/feedback
+POST {{baseUrl}}/api/v1/tasks/manual-switch/feedback
 Content-Type: {{json}}
 
 {
@@ -156,7 +104,7 @@ Content-Type: {{json}}
 }
 
 ### Create a preplan task
-POST {{baseUrl}}/tasks
+POST {{baseUrl}}/api/v1/tasks
 Content-Type: {{json}}
 
 {
@@ -179,13 +127,13 @@ Content-Type: {{json}}
 }
 
 ### Query preplan output
-GET {{baseUrl}}/tasks/{{preplanTaskId}}/output
+GET {{baseUrl}}/api/v1/tasks/{{preplanTaskId}}/output
 
 ### Query sonar match status
-GET {{baseUrl}}/sonar/match/status?task_id={{underwaterTaskId}}
+GET {{baseUrl}}/api/v1/sonar/match/status?task_id={{underwaterTaskId}}
 
 ### Terminate the basic tracking task
-POST {{baseUrl}}/tasks/{{taskId}}/terminate
+POST {{baseUrl}}/api/v1/tasks/{{taskId}}/terminate
 Content-Type: {{json}}
 
 {
@@ -193,7 +141,7 @@ Content-Type: {{json}}
 }
 
 ### Terminate the preplan task
-POST {{baseUrl}}/tasks/{{preplanTaskId}}/terminate
+POST {{baseUrl}}/api/v1/tasks/{{preplanTaskId}}/terminate
 Content-Type: {{json}}
 
 {
@@ -395,7 +343,7 @@ Content-Type: {{json}}
 }
 
 ### Scenario 1: create filtering task
-POST {{baseUrl}}/tasks
+POST {{baseUrl}}/api/v1/tasks
 Content-Type: {{json}}
 
 {
@@ -428,10 +376,10 @@ Content-Type: {{json}}
 }
 
 ### Scenario 1: inspect candidate ranking
-GET {{baseUrl}}/tasks/{{trackingFilterTaskId}}/result
+GET {{baseUrl}}/api/v1/tasks/{{trackingFilterTaskId}}/result
 
 ### Scenario 2: create expel mode task
-POST {{baseUrl}}/tasks
+POST {{baseUrl}}/api/v1/tasks
 Content-Type: {{json}}
 
 {
@@ -466,10 +414,10 @@ Content-Type: {{json}}
 }
 
 ### Scenario 2: inspect expel output
-GET {{baseUrl}}/tasks/{{trackingExpelTaskId}}/result
+GET {{baseUrl}}/api/v1/tasks/{{trackingExpelTaskId}}/result
 
 ### Scenario 3: create patrol coverage task
-POST {{baseUrl}}/tasks
+POST {{baseUrl}}/api/v1/tasks
 Content-Type: {{json}}
 
 {
@@ -496,13 +444,13 @@ Content-Type: {{json}}
 }
 
 ### Scenario 3: inspect patrol output
-GET {{baseUrl}}/tasks/{{patrolTaskId}}/output
+GET {{baseUrl}}/api/v1/tasks/{{patrolTaskId}}/output
 
 ### Scenario 3: inspect preplan result for coverage route comparison
-GET {{baseUrl}}/tasks/{{preplanTaskId}}/result
+GET {{baseUrl}}/api/v1/tasks/{{preplanTaskId}}/result
 
 ### Cleanup filtering scenario task
-POST {{baseUrl}}/tasks/{{trackingFilterTaskId}}/terminate
+POST {{baseUrl}}/api/v1/tasks/{{trackingFilterTaskId}}/terminate
 Content-Type: {{json}}
 
 {
@@ -510,7 +458,7 @@ Content-Type: {{json}}
 }
 
 ### Cleanup expel scenario task
-POST {{baseUrl}}/tasks/{{trackingExpelTaskId}}/terminate
+POST {{baseUrl}}/api/v1/tasks/{{trackingExpelTaskId}}/terminate
 Content-Type: {{json}}
 
 {
@@ -518,7 +466,7 @@ Content-Type: {{json}}
 }
 
 ### Cleanup patrol scenario task
-POST {{baseUrl}}/tasks/{{patrolTaskId}}/terminate
+POST {{baseUrl}}/api/v1/tasks/{{patrolTaskId}}/terminate
 Content-Type: {{json}}
 
 {
@@ -578,7 +526,7 @@ Content-Type: {{json}}
 }
 
 ### Tracking closure test: create tracking task
-POST {{baseUrl}}/tasks
+POST {{baseUrl}}/api/v1/tasks
 Content-Type: {{json}}
 
 {
@@ -617,7 +565,7 @@ Content-Type: {{json}}
 GET {{baseUrl}}/mock/autonomy/tracking/logs
 
 ### Tracking closure test: inspect task result first
-GET {{baseUrl}}/tasks/{{taskId}}/result
+GET {{baseUrl}}/api/v1/tasks/{{taskId}}/result
 
 ### Tracking closure test: manually simulate ownship arrival near dispatched tracking point
 ### Replace longitude latitude heading_deg speed_mps with the dispatched point you want to verify
@@ -640,4 +588,52 @@ GET {{baseUrl}}/mock/dds/situation
 GET {{baseUrl}}/mock/collaboration/optical-linkage/commands
 
 ### Tracking closure test: inspect task result after manual arrival
-GET {{baseUrl}}/tasks/{{taskId}}/result
+GET {{baseUrl}}/api/v1/tasks/{{taskId}}/result
+
+
+
+
+
+### ====================
+### Circle area scenario (v5 task_area)
+### ====================
+
+@trackingCircleTaskId = task-tracking-circle-001
+
+### Create a circle-area tracking task
+POST {{baseUrl}}/api/v1/tasks
+Content-Type: {{json}}
+
+{
+  "task_id": "{{trackingCircleTaskId}}",
+  "task_type": "tracking",
+  "task_name": "tracking-circle-scenario",
+  "task_source": "planning_service",
+  "priority": 1,
+  "mode": "escort",
+  "task_area": {
+    "area_type": "circle",
+    "center": { "longitude": 121.5000, "latitude": 31.2200 },
+    "radius_m": 3000
+  },
+  "expected_speed": 12.0,
+  "update_interval_sec": 1,
+  "end_condition": {
+    "duration_sec": 300,
+    "out_of_region_finish": true
+  }
+}
+
+### Query circle task status
+GET {{baseUrl}}/api/v1/tasks/{{trackingCircleTaskId}}/status
+
+### Query circle task result detail
+GET {{baseUrl}}/api/v1/tasks/{{trackingCircleTaskId}}/result
+
+### Terminate the circle tracking task
+POST {{baseUrl}}/api/v1/tasks/{{trackingCircleTaskId}}/terminate
+Content-Type: {{json}}
+
+{
+  "reason": "cleanup"
+}

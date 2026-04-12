@@ -24,6 +24,19 @@ tracking:
     military_civil_preferred_weight: 10.0
     range_score_weight: 1.0
     bearing_score_weight: 0.5
+    threat_score_weight: 30.0
+    value_score_weight: 20.0
+
+    threat_level_max: 5.0
+    default_target_type_value_score: 10.0
+    default_military_civil_value_score: 0.0
+    target_type_value_scores:
+      106: 100.0
+      104: 70.0
+      105: 70.0
+    military_civil_value_scores:
+      1: 20.0
+      2: 0.0
 
     sector_filter_enabled: true
     sector_center_deg: 0.0

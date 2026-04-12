@@ -17,7 +17,7 @@ class SonarClient:
             cfg = self._cfg()
             try:
                 resp = http_get_json(
-                    url=cfg.base_url.rstrip("/") + "/sonar/match/status",
+                    url=cfg.base_url.rstrip("/") + "/api/v1/sonar/match/status",
                     timeout_sec=cfg.timeout_sec,
                     params={"task_id": task_id},
                 )

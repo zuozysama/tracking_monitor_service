@@ -34,3 +34,23 @@ external_services:
     mode: http
     base_url: "http://127.0.0.1:9004"
     timeout_sec: 3.0
+
+## DDS 适配层配置
+
+新增 `config/dds_settings.yaml` 用于 DDS 运行模式切换：
+
+- `runtime.mode: mock|real`
+- `runtime.platform: win|ft2000`
+- `runtime.domain_id`
+- `runtime.qos_file`
+- `runtime.license_file`
+- `runtime.participant_name`
+
+运行时可用环境变量覆盖：
+
+- `DDS_MODE`
+- `DDS_PLATFORM`
+- `DDS_DOMAIN_ID`
+- `DDS_QOS_FILE`
+- `DDS_LICENSE_FILE`
+- `DDS_PARTICIPANT_NAME`

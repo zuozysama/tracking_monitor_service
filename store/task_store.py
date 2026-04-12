@@ -22,5 +22,8 @@ class TaskStore:
     def update_task(self, task: TaskContext) -> None:
         self._tasks[task.task_id] = task
 
+    def reset(self) -> None:
+        self._tasks.clear()
+
 
 task_store = TaskStore()

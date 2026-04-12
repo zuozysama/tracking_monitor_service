@@ -3,8 +3,9 @@ from domain.models import TaskContext, RecommendedPoint, GeoPoint
 from store.situation_store import situation_store
 from store.task_store import task_store
 from utils.time_utils import utc_now
-from utils.geo_utils import haversine_distance_m, is_point_in_polygon
+from utils.geo_utils import haversine_distance_m
 from utils.config_utils import get_fixed_tracking_default_radius_m
+from utils.region_utils import is_point_in_task_area
 
 
 class FixedTrackingService:
@@ -49,8 +50,8 @@ class FixedTrackingService:
             latitude=ownship.latitude,
         )
 
-        if task.polygon_region is not None and task.polygon_region.area_type == "polygon":
-            inside = is_point_in_polygon(ownship_point, task.polygon_region.points)
+        if task.polygon_region is not None and task.polygon_region.area_type in {"polygon", "circle"}:
+            inside = is_point_in_task_area(ownship_point, task.polygon_region)
             if not inside:
                 task.status = TaskStatus.COMPLETED
                 task.finish_reason = FinishReason.OUT_OF_REGION

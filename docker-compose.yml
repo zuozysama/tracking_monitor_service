@@ -1,0 +1,19 @@
+version: "3.9"
+
+services:
+  cc_me_tracking_monitor_service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: cc_me_tracking_monitor_service:latest
+    container_name: cc_me_tracking_monitor_service
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      DDS_MODE: "mock"
+      DDS_CONFIG_PATH: "config/dds_settings.yaml"
+      FFMPEG_BIN: "ffmpeg"
+      MEDIA_OUTPUT_DIR: "artifacts/media"
+    volumes:
+      - ./artifacts/media:/app/artifacts/media

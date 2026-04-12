@@ -43,6 +43,33 @@ def _distance_m(dx: float, dy: float) -> float:
     return math.hypot(dx, dy)
 
 
+def _build_circle_waypoints(
+    center: GeoPoint,
+    radius_m: float,
+    expected_speed: float,
+    num_points: int = 12,
+) -> List[PatrolWaypoint]:
+    count = max(8, num_points)
+    lat_rad = math.radians(center.latitude)
+    cos_lat = max(math.cos(lat_rad), 1e-12)
+
+    waypoints: List[PatrolWaypoint] = []
+    for idx in range(count):
+        angle = 2.0 * math.pi * idx / count
+        dx = radius_m * math.cos(angle)
+        dy = radius_m * math.sin(angle)
+        lon = center.longitude + math.degrees(dx / (EARTH_RADIUS_M * cos_lat))
+        lat = center.latitude + math.degrees(dy / EARTH_RADIUS_M)
+        waypoints.append(
+            PatrolWaypoint(
+                longitude=lon,
+                latitude=lat,
+                expected_speed=expected_speed,
+            )
+        )
+    return waypoints
+
+
 def _rotate_xy(x: float, y: float, angle_deg: float) -> Tuple[float, float]:
     rad = math.radians(angle_deg)
     c = math.cos(rad)
@@ -244,6 +271,16 @@ def generate_simple_patrol_waypoints(
     expected_speed: float,
     num_passes: int = 4,
 ) -> List[PatrolWaypoint]:
+    if task_area.area_type == "circle":
+        if task_area.center is None or task_area.radius_m is None:
+            return []
+        return _build_circle_waypoints(
+            center=task_area.center,
+            radius_m=task_area.radius_m,
+            expected_speed=expected_speed,
+            num_points=max(12, num_passes * 3),
+        )
+
     if task_area.area_type == "route":
         return [
             PatrolWaypoint(

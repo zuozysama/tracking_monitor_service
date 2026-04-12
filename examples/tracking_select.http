@@ -130,7 +130,7 @@ Content-Type: {{json}}
 }
 
 ### 4. Create tracking task in escort mode (without explicit target_id)
-POST {{baseUrl}}/tasks
+POST {{baseUrl}}/api/v1/tasks
 Content-Type: {{json}}
 
 {
@@ -168,7 +168,7 @@ Content-Type: {{json}}
 GET {{baseUrl}}/mock/collaboration/planning/plans
 
 ### 6. Simulate planning feasibility callback
-POST {{baseUrl}}/tasks/callbacks/planning/feasibility
+POST {{baseUrl}}/api/v1/tasks/callbacks/planning/feasibility
 Content-Type: {{json}}
 
 {
@@ -182,7 +182,7 @@ Content-Type: {{json}}
 
 ### 7. Inspect candidate ranking and current selected target
 ### Expected: current_target_id is highest-score candidate by default
-GET {{baseUrl}}/tasks/{{taskId}}/result
+GET {{baseUrl}}/api/v1/tasks/{{taskId}}/result
 
 ### 8. Inspect autonomy tracking dispatch logs (before manual selection)
 GET {{baseUrl}}/mock/autonomy/tracking/logs
@@ -204,7 +204,7 @@ Content-Type: {{json}}
 GET {{baseUrl}}/mock/collaboration/manual-selection/requests
 
 ### 10. Inspect manual selection status (auto-send + 20s timer state)
-GET {{baseUrl}}/tasks/{{taskId}}/manual-selection/status
+GET {{baseUrl}}/api/v1/tasks/{{taskId}}/manual-selection/status
 
 ### 11. Choose one branch below (A or B), do not execute both
 
@@ -216,7 +216,7 @@ GET {{baseUrl}}/tasks/{{taskId}}/manual-selection/status
 ### A1. Send feedback within 20 seconds from request_time in status endpoint
 ### Pick a non-top candidate intentionally to verify override
 ### Note: feedback_time is recorded only; timeout check uses server current time.
-POST {{baseUrl}}/tasks/manual-selection/feedback
+POST {{baseUrl}}/api/v1/tasks/manual-selection/feedback
 Content-Type: {{json}}
 
 {
@@ -229,7 +229,7 @@ Content-Type: {{json}}
 GET {{baseUrl}}/mock/collaboration/manual-selection/feedbacks
 
 ### A3. Verify task follows designated target
-GET {{baseUrl}}/tasks/{{taskId}}/result
+GET {{baseUrl}}/api/v1/tasks/{{taskId}}/result
 
 ### A4. Inspect autonomy tracking dispatch after designated selection
 GET {{baseUrl}}/mock/autonomy/tracking/logs
@@ -242,10 +242,10 @@ GET {{baseUrl}}/mock/autonomy/tracking/logs
 ### B1. Do not send feedback. Wait at least 20 seconds from request_time in status endpoint.
 
 ### B2. Verify task keeps/defaults to highest-score target
-GET {{baseUrl}}/tasks/{{taskId}}/result
+GET {{baseUrl}}/api/v1/tasks/{{taskId}}/result
 
 ### B3. Verify status shows pending=false after timeout
-GET {{baseUrl}}/tasks/{{taskId}}/manual-selection/status
+GET {{baseUrl}}/api/v1/tasks/{{taskId}}/manual-selection/status
 
 ### B4. Inspect autonomy tracking dispatch after timeout defaulting
 GET {{baseUrl}}/mock/autonomy/tracking/logs
@@ -259,7 +259,7 @@ GET {{baseUrl}}/mock/autonomy/tracking/logs
 GET {{baseUrl}}/mock/dds/situation
 
 ### 13. Simulate ownship arrival near dispatched tracking point
-### Replace longitude/latitude with /tasks/{{taskId}}/result -> recommended_point values
+### Replace longitude/latitude with /api/v1/tasks/{{taskId}}/result -> recommended_point values
 POST {{baseUrl}}/mock/dds/navigation
 Content-Type: {{json}}
 
@@ -282,7 +282,7 @@ GET {{baseUrl}}/mock/collaboration/optical-linkage/commands
 GET {{baseUrl}}/mock/collaboration/media/stream-access
 
 ### 17. Inspect task result after arrival
-GET {{baseUrl}}/tasks/{{taskId}}/result
+GET {{baseUrl}}/api/v1/tasks/{{taskId}}/result
 
 ### 18. Move ownship away before terminate
 POST {{baseUrl}}/mock/dds/navigation
@@ -298,12 +298,14 @@ Content-Type: {{json}}
 }
 
 ### 19. Cleanup task
-POST {{baseUrl}}/tasks/{{taskId}}/terminate
+POST {{baseUrl}}/api/v1/tasks/{{taskId}}/terminate
 Content-Type: {{json}}
 
 {
   "reason": "cleanup"
 }
+
+
 
 
 

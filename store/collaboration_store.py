@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from domain.models import OpticalLinkageCommand, OptronicStatus, SonarMatchStatus
 
@@ -20,6 +20,7 @@ class CollaborationStore:
         self._manual_switch_requests: List[dict] = []
         self._manual_selection_feedbacks: List[dict] = []
         self._manual_switch_feedbacks: List[dict] = []
+        self._dds_publish_logs: List[dict] = []
 
     def get_optronic_status(self, task_id: str) -> OptronicStatus:
         if task_id not in self._optronic_status_by_task:
@@ -56,6 +57,13 @@ class CollaborationStore:
 
     def get_media_stream_access_logs(self) -> List[dict]:
         return self._media_stream_access_logs
+
+    def get_latest_stream_access_by_task(self, task_id: str) -> Optional[dict]:
+        for item in reversed(self._media_stream_access_logs):
+            request = item.get("request") or {}
+            if request.get("task_id") == task_id:
+                return item
+        return None
 
     def get_stage_logs(self) -> List[dict]:
         return self._planning_stage_logs
@@ -116,6 +124,29 @@ class CollaborationStore:
 
     def get_manual_switch_feedbacks(self) -> List[dict]:
         return self._manual_switch_feedbacks
+
+    def append_dds_publish_log(self, item: dict) -> None:
+        self._dds_publish_logs.append(item)
+
+    def get_dds_publish_logs(self) -> List[dict]:
+        return self._dds_publish_logs
+
+    def reset(self) -> None:
+        self._optronic_status_by_task.clear()
+        self._photo_logs.clear()
+        self._video_logs.clear()
+        self._media_stream_access_logs.clear()
+        self._planning_stage_logs.clear()
+        self._planning_plan_logs.clear()
+        self._sonar_status_by_task.clear()
+        self._autonomy_patrol_logs.clear()
+        self._autonomy_tracking_logs.clear()
+        self._optical_linkage_logs.clear()
+        self._manual_selection_requests.clear()
+        self._manual_switch_requests.clear()
+        self._manual_selection_feedbacks.clear()
+        self._manual_switch_feedbacks.clear()
+        self._dds_publish_logs.clear()
 
 
 collaboration_store = CollaborationStore()

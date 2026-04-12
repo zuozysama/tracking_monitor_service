@@ -8,7 +8,7 @@
 ### Stage-2: same-side left/right point, distance uses expel_distance_m (closer, e.g. 200m)
 ### Notes:
 ### - /mock/autonomy/tracking/logs is for relative dispatch (rel_range_m / relative_bearing_deg)
-### - /tasks/{{taskId}}/result -> recommended_point is for absolute lon/lat
+### - /api/v1/tasks/{{taskId}}/result -> recommended_point is for absolute lon/lat
 
 ### 1. Reset local mock state
 POST {{baseUrl}}/mock/dds/reset
@@ -54,7 +54,7 @@ Content-Type: {{json}}
 }
 
 ### 4. Create tracking task in expel mode
-POST {{baseUrl}}/tasks
+POST {{baseUrl}}/api/v1/tasks
 Content-Type: {{json}}
 
 {
@@ -98,7 +98,7 @@ Content-Type: {{json}}
 GET {{baseUrl}}/mock/collaboration/planning/plans
 
 ### 5. Simulate planning feasibility callback for the reported patrol route
-POST {{baseUrl}}/tasks/callbacks/planning/feasibility
+POST {{baseUrl}}/api/v1/tasks/callbacks/planning/feasibility
 Content-Type: {{json}}
 
 {
@@ -116,10 +116,10 @@ Content-Type: {{json}}
 GET {{baseUrl}}/mock/autonomy/tracking/logs
 
 ### 6. Read Stage-1 absolute recommended point
-GET {{baseUrl}}/tasks/{{taskId}}/result
+GET {{baseUrl}}/api/v1/tasks/{{taskId}}/result
 
 ### 7. Stage-1 arrival: move ownship to Stage-1 recommended_point
-### Replace longitude/latitude/heading_deg/speed_mps from /tasks/{{taskId}}/result -> recommended_point
+### Replace longitude/latitude/heading_deg/speed_mps from /api/v1/tasks/{{taskId}}/result -> recommended_point
 POST {{baseUrl}}/mock/dds/navigation
 Content-Type: {{json}}
 
@@ -139,10 +139,10 @@ Content-Type: {{json}}
 GET {{baseUrl}}/mock/autonomy/tracking/logs
 
 ### 9. Read Stage-2 absolute recommended point
-GET {{baseUrl}}/tasks/{{taskId}}/result
+GET {{baseUrl}}/api/v1/tasks/{{taskId}}/result
 
 ### 10. Stage-2 arrival: move ownship to Stage-2 recommended_point
-### Replace longitude/latitude/heading_deg/speed_mps from /tasks/{{taskId}}/result -> recommended_point
+### Replace longitude/latitude/heading_deg/speed_mps from /api/v1/tasks/{{taskId}}/result -> recommended_point
 POST {{baseUrl}}/mock/dds/navigation
 Content-Type: {{json}}
 
@@ -156,7 +156,7 @@ Content-Type: {{json}}
 }
 
 ### 10. Stage-2 arrival: move ownship to Stage-2 recommended_point
-### Replace longitude/latitude/heading_deg/speed_mps from /tasks/{{taskId}}/result -> recommended_point
+### Replace longitude/latitude/heading_deg/speed_mps from /api/v1/tasks/{{taskId}}/result -> recommended_point
 POST {{baseUrl}}/mock/dds/navigation
 Content-Type: {{json}}
 
@@ -179,7 +179,7 @@ GET {{baseUrl}}/mock/collaboration/optical-linkage/commands
 GET {{baseUrl}}/mock/collaboration/media/stream-access
 
 ### 14. Inspect task result
-GET {{baseUrl}}/tasks/{{taskId}}/result
+GET {{baseUrl}}/api/v1/tasks/{{taskId}}/result
 
 ### 15. Move ownship away before terminate
 POST {{baseUrl}}/mock/dds/navigation
@@ -195,9 +195,11 @@ Content-Type: {{json}}
 }
 
 ### 16. Cleanup task
-POST {{baseUrl}}/tasks/{{taskId}}/terminate
+POST {{baseUrl}}/api/v1/tasks/{{taskId}}/terminate
 Content-Type: {{json}}
 
 {
   "reason": "cleanup"
 }
+
+

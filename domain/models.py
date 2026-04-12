@@ -17,14 +17,30 @@ class GeoPoint(CompatModel):
 
 class TaskArea(CompatModel):
     area_type: str = "polygon"
-    points: List[GeoPoint]
+    points: Optional[List[GeoPoint]] = None
+    center: Optional[GeoPoint] = None
+    radius_m: Optional[float] = Field(default=None, gt=0.0)
 
     @model_validator(mode="after")
     def validate_points(self):
-        min_points = 3 if self.area_type == "polygon" else 2
-        if len(self.points) < min_points:
-            raise ValueError(f"points must contain at least {min_points} points")
-        return self
+        if self.area_type == "polygon":
+            if self.points is None or len(self.points) < 3:
+                raise ValueError("points must contain at least 3 points when area_type=polygon")
+            return self
+
+        if self.area_type == "route":
+            if self.points is None or len(self.points) < 2:
+                raise ValueError("points must contain at least 2 points when area_type=route")
+            return self
+
+        if self.area_type == "circle":
+            if self.center is None:
+                raise ValueError("center is required when area_type=circle")
+            if self.radius_m is None:
+                raise ValueError("radius_m is required when area_type=circle")
+            return self
+
+        raise ValueError("area_type must be one of polygon, route, circle")
 
 
 class TargetInfo(CompatModel):
@@ -522,7 +538,7 @@ class TaskStatusResponse(CompatModel):
     task_type: TaskType
     task_name: Optional[str] = None
     mode: Optional[TrackingMode] = None
-    task_status: TaskStatus
+    task_status: str
     start_time: Optional[datetime] = None
     update_time: datetime
     remaining_time_sec: Optional[int] = None
@@ -535,7 +551,7 @@ class TaskResultResponse(CompatModel):
     task_type: TaskType
     task_name: Optional[str] = None
     mode: Optional[TrackingMode] = None
-    task_status: TaskStatus
+    task_status: str
     current_target_id: Optional[str] = None
     current_target_info: Optional[TargetState] = None
     recommended_point: Optional[RecommendedPoint] = None

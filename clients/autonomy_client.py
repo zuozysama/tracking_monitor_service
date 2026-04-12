@@ -16,7 +16,7 @@ class AutonomyClient:
             cfg = self._cfg()
             try:
                 return http_post_json(
-                    url=cfg.base_url.rstrip("/") + "/patrol/dispatch",
+                    url=cfg.base_url.rstrip("/") + "/api/v1/internal/patrol/dispatch",
                     timeout_sec=cfg.timeout_sec,
                     payload=payload.model_dump(mode="json"),
                 )
@@ -39,7 +39,7 @@ class AutonomyClient:
             cfg = self._cfg()
             try:
                 return http_post_json(
-                    url=cfg.base_url.rstrip("/") + "/tracking/dispatch",
+                    url=cfg.base_url.rstrip("/") + "/api/v1/internal/tracking/dispatch",
                     timeout_sec=cfg.timeout_sec,
                     payload=payload.model_dump(mode="json"),
                 )

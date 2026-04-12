@@ -3,20 +3,26 @@ from typing import List, Optional, Tuple
 
 from domain.models import GeoPoint, OwnShipState, TargetConstraint, TargetState, TaskArea
 from utils.config_utils import (
+    get_tracking_default_military_civil_value_score,
+    get_tracking_default_target_type_value_score,
     get_tracking_bearing_center_deg,
     get_tracking_bearing_window_deg,
     get_tracking_filter_identity_weights,
     get_tracking_hysteresis_margin,
     get_tracking_max_target_range_m,
+    get_tracking_military_civil_value_scores,
     get_tracking_min_target_range_m,
     get_tracking_sector_center_deg,
     get_tracking_sector_width_deg,
+    get_tracking_target_type_value_scores,
+    get_tracking_threat_level_max,
     get_tracking_top_k_candidates,
     is_tracking_filter_debug_enabled,
     is_tracking_hysteresis_enabled,
     is_tracking_sector_filter_enabled,
 )
-from utils.geo_utils import haversine_distance_m, is_point_in_polygon
+from utils.geo_utils import haversine_distance_m
+from utils.region_utils import is_target_in_task_area
 
 
 def normalize_bearing_deg(angle: float) -> float:
@@ -50,11 +56,7 @@ def _in_bearing_window(bearing_deg: float, min_deg: float, max_deg: float) -> bo
 
 
 def _task_area_filter(target: TargetState, task_area: Optional[TaskArea]) -> bool:
-    if task_area is None:
-        return True
-
-    point = GeoPoint(longitude=target.longitude, latitude=target.latitude)
-    return is_point_in_polygon(point, task_area.points)
+    return is_target_in_task_area(target=target, task_area=task_area)
 
 
 def _has_explicit_identity_constraint(constraint: Optional[TargetConstraint]) -> bool:
@@ -139,6 +141,28 @@ def _target_identity_score(target: TargetState, constraint: Optional[TargetConst
         weight=weights["military_civil_preferred"],
     )
     return score
+
+
+def _threat_score(target: TargetState) -> float:
+    max_level = max(get_tracking_threat_level_max(), 1e-6)
+    level = float(target.threat_level or 0.0)
+    normalized = level / max_level
+    return max(0.0, normalized)
+
+
+def _target_value_score(target: TargetState) -> float:
+    target_type_scores = get_tracking_target_type_value_scores()
+    military_civil_scores = get_tracking_military_civil_value_scores()
+
+    target_type_value = float(get_tracking_default_target_type_value_score())
+    if target.target_type_code in target_type_scores:
+        target_type_value = float(target_type_scores[target.target_type_code])
+
+    military_civil_value = float(get_tracking_default_military_civil_value_score())
+    if target.military_civil_attr in military_civil_scores:
+        military_civil_value = float(military_civil_scores[target.military_civil_attr])
+
+    return target_type_value + military_civil_value
 
 
 def _resolve_range_window(constraint: Optional[TargetConstraint]) -> Tuple[float, float]:
@@ -273,9 +297,13 @@ def _print_filter_debug(
             f'target_type_code={item["target"].target_type_code}, '
             f'enemy_friend_attr={item["target"].enemy_friend_attr}, '
             f'military_civil_attr={item["target"].military_civil_attr}, '
+            f'threat_level={item["target"].threat_level}, '
+            f'threat_score={item["threat_score"]:.3f}, '
+            f'value_score={item["value_score"]:.3f}, '
             f'identity_score={item["identity_score"]:.3f}, '
             f'distance_score={item["distance_score"]:.3f}, '
             f'bearing_score={item["bearing_score"]:.3f}, '
+            f'aux_score={item["aux_score"]:.3f}, '
             f'total_score={item["total_score"]:.3f}, '
             f'distance={distance_text}, '
             f'bearing_to_target={bearing_text}, '
@@ -303,7 +331,12 @@ def _apply_hysteresis(candidates: List[dict], current_target_id: Optional[str]) 
         if current_item is not None:
             margin = get_tracking_hysteresis_margin()
             if top_candidate["target"].target_id != current_target_id:
-                if top_candidate["total_score"] - current_item["total_score"] <= margin:
+                top_threat = top_candidate["target"].threat_level or 0
+                cur_threat = current_item["target"].threat_level or 0
+                top_value = top_candidate["value_score"]
+                cur_value = current_item["value_score"]
+                can_apply_margin = top_threat == cur_threat and abs(top_value - cur_value) <= 1e-6
+                if can_apply_margin and top_candidate["total_score"] - current_item["total_score"] <= margin:
                     selected_candidate = current_item
     return selected_candidate["target"]
 
@@ -368,14 +401,28 @@ def filter_and_select_target(
             relative_bearing_deg = sector_relative_bearing_deg
 
         identity_score = _target_identity_score(target=target, constraint=constraint, weights=weights)
-        total_score = identity_score + distance_score * weights["range"] + bearing_score * weights["bearing"]
+        threat_score = _threat_score(target=target)
+        value_score = _target_value_score(target=target)
+        aux_score = (
+            identity_score
+            + distance_score * weights["range"]
+            + bearing_score * weights["bearing"]
+        )
+        total_score = (
+            threat_score * weights["threat"]
+            + value_score * weights["value"]
+            + aux_score
+        )
 
         candidates.append(
             {
                 "target": target,
+                "threat_score": threat_score,
+                "value_score": value_score,
                 "identity_score": identity_score,
                 "distance_score": distance_score,
                 "bearing_score": bearing_score,
+                "aux_score": aux_score,
                 "total_score": total_score,
                 "distance_m": distance_m,
                 "bearing_to_target_deg": bearing_to_target_deg,
@@ -383,7 +430,15 @@ def filter_and_select_target(
             }
         )
 
-    candidates.sort(key=lambda item: item["total_score"], reverse=True)
+    candidates.sort(
+        key=lambda item: (
+            item["target"].threat_level or 0,
+            item["value_score"],
+            item["aux_score"],
+            item["total_score"],
+        ),
+        reverse=True,
+    )
     top_k_candidates = candidates[: get_tracking_top_k_candidates()]
     selected_target = _apply_hysteresis(candidates=top_k_candidates, current_target_id=current_target_id)
 
@@ -404,11 +459,15 @@ def filter_and_select_target(
                 "target_name": item["target"].target_name,
                 "target_type_code": item["target"].target_type_code,
                 "target_batch_no": item["target"].target_batch_no,
+                "threat_level": item["target"].threat_level,
                 "enemy_friend_attr": item["target"].enemy_friend_attr,
                 "military_civil_attr": item["target"].military_civil_attr,
+                "threat_score": item["threat_score"],
+                "value_score": item["value_score"],
                 "identity_score": item["identity_score"],
                 "distance_score": item["distance_score"],
                 "bearing_score": item["bearing_score"],
+                "aux_score": item["aux_score"],
                 "total_score": item["total_score"],
                 "distance_m": item["distance_m"],
                 "bearing_to_target_deg": item["bearing_to_target_deg"],

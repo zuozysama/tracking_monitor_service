@@ -6,6 +6,7 @@ from domain.models import (
     CreateTaskRequest,
     EndCondition,
     FeasibilityCallbackRequest,
+    GeoPoint,
     ManualSelectionFeedbackRequest,
     ManualSelectionRequest,
     ManualSwitchRequest,
@@ -23,15 +24,22 @@ from services.patrol_service import patrol_service
 from services.preplan_service import preplan_service
 from services.tracking_service import tracking_service
 from services.underwater_search_service import underwater_search_service
-from domain.models import GeoPoint
 from store.situation_store import situation_store
 from store.task_store import task_store
 from utils.config_utils import get_fixed_tracking_default_radius_m
-from utils.geo_utils import is_point_in_polygon
+from utils.region_utils import is_point_in_task_area
 from utils.time_utils import utc_now
 
 
 class TaskService:
+    @staticmethod
+    def _normalize_contract_task_status(status: TaskStatus) -> str:
+        if status == TaskStatus.WAITING_TARGET:
+            return "running"
+        if status == TaskStatus.ABNORMAL:
+            return "failed"
+        return status.value
+
     def create_task(self, req: CreateTaskRequest) -> TaskContext:
         if task_store.exists(req.task_id):
             raise ValueError("task already exists")
@@ -243,7 +251,7 @@ class TaskService:
             task_type=task.task_type,
             task_name=task.task_name,
             mode=task.mode,
-            task_status=task.status,
+            task_status=self._normalize_contract_task_status(task.status),
             start_time=task.start_time,
             update_time=task.update_time,
             remaining_time_sec=remaining_time_sec,
@@ -313,7 +321,7 @@ class TaskService:
             task_type=task.task_type,
             task_name=task.task_name,
             mode=task.mode,
-            task_status=task.status,
+            task_status=self._normalize_contract_task_status(task.status),
             current_target_id=task.current_target_id,
             current_target_info=current_target_info,
             recommended_point=task.recommended_point,
@@ -343,6 +351,7 @@ class TaskService:
         elif task.fixed_tracking_output is not None:
             output_type = "fixed_tracking"
         elif task.preplan_output is not None:
+            # v4 contract includes preplan task type; keep explicit output type for preplan payload.
             output_type = "preplan"
         elif task.patrol_plan_output is not None:
             output_type = "patrol"
@@ -400,19 +409,17 @@ class TaskService:
         if not task.end_condition.out_of_region_finish:
             return False
 
-        if task.task_area is None or task.task_area.area_type != "polygon":
+        if task.task_area is None or task.task_area.area_type not in {"polygon", "circle"}:
             return False
 
         ownship = situation_store.get_ownship()
         if ownship is None:
             return False
 
-        ownship_point = GeoPoint(
-            longitude=ownship.longitude,
-            latitude=ownship.latitude,
+        inside = is_point_in_task_area(
+            point=GeoPoint(longitude=ownship.longitude, latitude=ownship.latitude),
+            task_area=task.task_area,
         )
-
-        inside = is_point_in_polygon(ownship_point, task.task_area.points)
         if inside:
             if not task.has_entered_task_area:
                 task.has_entered_task_area = True

@@ -24,7 +24,7 @@ Content-Type: {{json}}
 }
 
 ### 3. Create tracking task with optical linkage enabled
-POST {{baseUrl}}/tasks
+POST {{baseUrl}}/api/v1/tasks
 Content-Type: {{json}}
 
 {
@@ -68,7 +68,7 @@ Content-Type: {{json}}
 GET {{baseUrl}}/mock/collaboration/planning/plans
 
 ### 5. Simulate planning feasibility callback for the reported patrol route
-POST {{baseUrl}}/tasks/callbacks/planning/feasibility
+POST {{baseUrl}}/api/v1/tasks/callbacks/planning/feasibility
 Content-Type: {{json}}
 
 {
@@ -82,7 +82,7 @@ Content-Type: {{json}}
 
 ### 6. Inspect current task result before target input
 ### Expect task_status waiting_target, patrol_plan_output populated, planning_callback received
-GET {{baseUrl}}/tasks/{{taskId}}/result
+GET {{baseUrl}}/api/v1/tasks/{{taskId}}/result
 
 ### 7. Set target perception input
 POST {{baseUrl}}/mock/dds/perception
@@ -115,7 +115,7 @@ Content-Type: {{json}}
 GET {{baseUrl}}/mock/autonomy/tracking/logs
 
 ### 10. Inspect current task result before manual arrival
-GET {{baseUrl}}/tasks/{{taskId}}/result
+GET {{baseUrl}}/api/v1/tasks/{{taskId}}/result
 
 ### 11. Inspect current local situation
 GET {{baseUrl}}/mock/dds/situation
@@ -144,7 +144,7 @@ GET {{baseUrl}}/mock/collaboration/optical-linkage/commands
 GET {{baseUrl}}/mock/collaboration/media/stream-access
 
 ### 16. Inspect task result after manual arrival
-GET {{baseUrl}}/tasks/{{taskId}}/result
+GET {{baseUrl}}/api/v1/tasks/{{taskId}}/result
 
 ### 17. Cleanup task
 POST {{baseUrl}}/mock/dds/navigation
@@ -160,9 +160,11 @@ Content-Type: {{json}}
 }
 
 ### 18. Cleanup task
-POST {{baseUrl}}/tasks/{{taskId}}/terminate
+POST {{baseUrl}}/api/v1/tasks/{{taskId}}/terminate
 Content-Type: {{json}}
 
 {
   "reason": "cleanup"
 }
+
+

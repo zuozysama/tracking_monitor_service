@@ -70,6 +70,11 @@ def get_manual_switch_feedbacks():
     return ok({"items": collaboration_store.get_manual_switch_feedbacks()})
 
 
+@router.get("/dds/publish-logs")
+def get_dds_publish_logs():
+    return ok({"items": collaboration_store.get_dds_publish_logs()})
+
+
 @router.get("/sonar/{task_id}/status")
 def get_sonar_status(task_id: str):
     status = collaboration_store.get_sonar_status(task_id)
@@ -91,3 +96,9 @@ def reset_optronic(task_id: str):
     )
     collaboration_store.set_optronic_status(task_id, status)
     return ok(status.model_dump())
+
+
+@router.post("/reset")
+def reset_collaboration_store():
+    collaboration_store.reset()
+    return ok({"reset": True})
