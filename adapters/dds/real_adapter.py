@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from ctypes import POINTER, cast
 from typing import Callable

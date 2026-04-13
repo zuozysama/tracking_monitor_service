@@ -1,4 +1,4 @@
-﻿# Tracking Monitor Service
+# Tracking Monitor Service
 
 跟踪监视服务原型工程。当前版本以 `FastAPI + mock DDS/mock 外部服务` 的方式运行，目标是与《W5-附件1-跟踪监视服务v4》接口口径对齐，便于 Windows 环境联调；后续再进一步整理 Docker 与麒麟系统部署方案。
 

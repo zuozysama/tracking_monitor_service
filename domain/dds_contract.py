@@ -1,6 +1,6 @@
 from domain.enums import FinishReason, TaskStatus, TaskType
 
-TOPIC_PREFIX = "cc_mp_tracking_monitor_service.v1."
+TOPIC_PREFIX = "cc_cm_tracking_monitor_service.v1."
 
 TASK_UPDATE_TOPIC = TOPIC_PREFIX + "task_update_topic"
 PREPLAN_RESULT_TOPIC = TOPIC_PREFIX + "preplan_result_topic"

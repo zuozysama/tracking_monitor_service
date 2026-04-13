@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from adapters.dds.base import DdsAdapter
 from adapters.dds.config import load_dds_runtime_config

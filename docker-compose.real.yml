@@ -1,12 +1,12 @@
 version: "3.9"
 
 services:
-  cc_mp_tracking_monitor_service:
+  cc_cm_tracking_monitor_service:
     build:
       context: .
       dockerfile: Dockerfile
-    image: cc_mp_tracking_monitor_service:real
-    container_name: cc_mp_tracking_monitor_service
+    image: cc_cm_tracking_monitor_service:real
+    container_name: cc_cm_tracking_monitor_service
     restart: unless-stopped
     ports:
       - "80:80"

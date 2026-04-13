@@ -1,4 +1,4 @@
-﻿import unittest
+import unittest
 from datetime import datetime, timezone
 
 from fastapi.testclient import TestClient

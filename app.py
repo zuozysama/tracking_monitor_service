@@ -26,7 +26,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="cc_mp_tracking_monitor_service",
+    title="cc_cm_tracking_monitor_service",
     version="0.4.0",
     description="Tracking monitor service aligned with W5 v6 API/DDS contract.",
     docs_url="/api/swagger_ui/index.html",
@@ -47,7 +47,7 @@ def root():
         "code": 200,
         "message": "success",
         "data": {
-            "service": "cc_mp_tracking_monitor_service",
+            "service": "cc_cm_tracking_monitor_service",
             "version": "0.4.0",
         },
     }

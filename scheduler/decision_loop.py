@@ -29,7 +29,7 @@ class DecisionLoop:
                 for task in tasks:
                     task_service.tick_task(task.task_id)
             except Exception as e:
-                # 当前先简单打印，后面可换正式日志
+                # Keep loop alive even if a single iteration fails.
                 print(f"[DecisionLoop] error: {e}")
 
             time.sleep(self.interval_sec)
