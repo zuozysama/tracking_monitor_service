@@ -18,7 +18,7 @@ RUN set -eux; \
       sed -i "s|http://deb.debian.org|${APT_MIRROR}|g; s|http://security.debian.org|${APT_MIRROR}|g" /etc/apt/sources.list.d/debian.sources; \
     fi; \
     apt-get update; \
-    apt-get install -y --no-install-recommends ffmpeg vim nano iputils-ping build-essential curl ca-certificates; \
+    apt-get install -y --no-install-recommends ffmpeg vim nano iputils-ping build-essential curl ca-certificates procps psmisc net-tools; \
     rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt ./

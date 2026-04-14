@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import struct
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from domain.dds_contract import (
@@ -33,6 +33,50 @@ def _u32(v: Any) -> int:
 
 def _i32(v: Any) -> int:
     return max(-2147483648, min(int(v or 0), 2147483647))
+
+
+def _iso_utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _decode_gb2312_cstr(raw: bytes) -> str:
+    data = raw.split(b"\x00", 1)[0]
+    if not data:
+        return ""
+    try:
+        return data.decode("gb2312", errors="ignore")
+    except Exception:
+        return data.decode("utf-8", errors="ignore")
+
+
+def _parse_common_header(body: bytes) -> tuple[int, str | None]:
+    # Common header from protocol doc:
+    # protocol_type(4) + version(1) + length(2) + msg_type(1) + seq(4) + reserve(1) + ts(8)
+    header_fmt = "<IBHBI BII"
+    header_size = struct.calcsize(header_fmt)
+    if len(body) < header_size:
+        return 0, None
+
+    try:
+        protocol_type, _ver, length, _msg_type, _seq, _reserve, ts_sec, ts_sub_ms_x1e6 = struct.unpack(
+            header_fmt, body[:header_size]
+        )
+    except Exception:
+        return 0, None
+
+    # Keep permissive checks to avoid breaking existing compact packets.
+    if protocol_type != 0:
+        return 0, None
+    if length and length > len(body):
+        return 0, None
+
+    try:
+        # Doc says lower 4 bytes carry millisecond value * 10^6.
+        ts_value = float(ts_sec) + float(ts_sub_ms_x1e6) / 1e9
+        ts_iso = datetime.fromtimestamp(ts_value, tz=timezone.utc).isoformat().replace("+00:00", "Z")
+    except Exception:
+        ts_iso = None
+    return header_size, ts_iso
 
 
 def encode_topic_payload(topic: str, payload: dict) -> bytes:
@@ -182,66 +226,176 @@ def decode_topic_payload(topic: str, body: bytes) -> dict:
     ownship_fmt = "<HHHii8s"
     ownship_size = struct.calcsize(ownship_fmt)
     if topic == OWNSHIP_NAVIGATION_TOPIC:
-        if len(body) < ownship_size:
-            return {"raw_hex": body.hex(), "decode_error": f"ownship body too short: {len(body)}<{ownship_size}"}
-        platform_id, speed_x100, heading_x10, lon_e7, lat_e7, _ = struct.unpack(ownship_fmt, body[:ownship_size])
+        common_offset, common_ts = _parse_common_header(body)
+        payload = body[common_offset:] if common_offset else body
+
+        # Doc-aligned nav payload (without common header).
+        # platform_id + ground_speed + course + vx/vy/vz + heading + lon + lat + angular vel +
+        # ax/ay/az + angular acc + roll + pitch + heave
+        nav_full_fmt = "<HHHhhhHiihhhhhhhh"
+        nav_full_size = struct.calcsize(nav_full_fmt)
+        if len(payload) >= nav_full_size:
+            (
+                platform_id,
+                speed_x100,
+                heading_x100,
+                _vx_x100,
+                _vy_x100,
+                _vz_x100,
+                _bow_heading_x100,
+                lon_e7,
+                lat_e7,
+                _ang_vel_x100,
+                _ax_x10,
+                _ay_x10,
+                _az_x10,
+                _ang_acc_x100,
+                _roll_x10,
+                _pitch_x10,
+                _heave_x10,
+            ) = struct.unpack(nav_full_fmt, payload[:nav_full_size])
+            return {
+                "platform_id": platform_id,
+                "speed_mps": speed_x100 / 100.0,
+                "heading_deg": heading_x100 / 100.0,
+                "longitude": lon_e7 / 1e7,
+                "latitude": lat_e7 / 1e7,
+                "timestamp": common_ts or _iso_utc_now(),
+            }
+
+        # Backward-compatible compact payload.
+        if len(payload) < ownship_size:
+            return {"raw_hex": body.hex(), "decode_error": f"ownship body too short: {len(payload)}<{ownship_size}"}
+        platform_id, speed_x100, heading_x10, lon_e7, lat_e7, _ = struct.unpack(ownship_fmt, payload[:ownship_size])
         return {
             "platform_id": platform_id,
             "speed_mps": speed_x100 / 100.0,
             "heading_deg": heading_x10 / 10.0,
             "longitude": lon_e7 / 1e7,
             "latitude": lat_e7 / 1e7,
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": common_ts or _iso_utc_now(),
         }
 
-    if topic == TARGET_PERCEPTION_TOPIC and len(body) >= 8:
-        target_count, source_platform_id, _ = struct.unpack("<HH4s", body[:8])
-        targets = []
-        offset = 8
-        entry_fmt = "<IHIHHiiHBB64s6s"
-        entry_size = struct.calcsize(entry_fmt)
-        for _i in range(target_count):
-            if len(body) < offset + entry_size:
-                break
-            (
-                batch_no,
-                bearing_x10,
-                distance_m,
-                speed_x10,
-                heading_x10,
-                lon_e7,
-                lat_e7,
-                type_code,
-                military,
-                threat,
-                target_id_raw,
-                _r,
-            ) = struct.unpack(entry_fmt, body[offset : offset + entry_size])
-            target_id = target_id_raw.split(b"\x00", 1)[0].decode("utf-8", errors="ignore")
-            targets.append(
-                {
-                    "source_platform_id": source_platform_id,
-                    "target_id": target_id or f"target-{batch_no}",
-                    "target_batch_no": batch_no,
-                    "target_bearing_deg": bearing_x10 / 10.0,
-                    "target_distance_m": float(distance_m),
-                    "target_absolute_speed_mps": speed_x10 / 10.0,
-                    "target_absolute_heading_deg": heading_x10 / 10.0,
-                    "target_longitude": lon_e7 / 1e7,
-                    "target_latitude": lat_e7 / 1e7,
-                    "target_type_code": type_code,
-                    "military_civil_attr": military,
-                    "threat_level": threat,
-                    "timestamp": datetime.utcnow().isoformat() + "Z",
-                    "active": True,
-                }
-            )
-            offset += entry_size
+    if topic == TARGET_PERCEPTION_TOPIC:
+        common_offset, common_ts = _parse_common_header(body)
+        payload = body[common_offset:] if common_offset else body
 
-        return {
-            "source_platform_id": source_platform_id,
-            "target_count": len(targets),
-            "targets": targets,
-        }
+        # Doc-aligned packet:
+        # count(2) + source_platform_id(2) + repeated target entries (88 bytes each).
+        if len(payload) >= 4:
+            target_count, source_platform_id = struct.unpack("<HH", payload[:4])
+            targets = []
+            offset = 4
+            doc_entry_fmt = "<HHIHHHHHiiHBBIbbb40sHHHbHH"
+            doc_entry_size = struct.calcsize(doc_entry_fmt)
+            if len(payload) >= offset + doc_entry_size:
+                for _i in range(target_count):
+                    if len(payload) < offset + doc_entry_size:
+                        break
+                    (
+                        batch_no,
+                        bearing_x10,
+                        distance_m,
+                        _height_x10,
+                        abs_speed_x10,
+                        abs_heading_x10,
+                        _rel_speed_x10,
+                        _rel_heading_x10,
+                        lon_e7,
+                        lat_e7,
+                        _qt_value,
+                        _coord_sys,
+                        _is_simulated,
+                        _target_ts_sub,
+                        _position_attr,
+                        target_type_code,
+                        military_civil_attr,
+                        target_name_raw,
+                        _target_len_x10,
+                        _target_width_x10,
+                        _target_height_x10,
+                        threat_level,
+                        _rcs_x10,
+                        _custom2,
+                    ) = struct.unpack(doc_entry_fmt, payload[offset : offset + doc_entry_size])
+                    target_name = _decode_gb2312_cstr(target_name_raw)
+                    targets.append(
+                        {
+                            "source_platform_id": source_platform_id,
+                            "target_id": f"target-{batch_no}",
+                            "target_batch_no": int(batch_no),
+                            "target_bearing_deg": bearing_x10 / 10.0,
+                            "target_distance_m": float(distance_m),
+                            "target_absolute_speed_mps": abs_speed_x10 / 10.0,
+                            "target_absolute_heading_deg": abs_heading_x10 / 10.0,
+                            "target_longitude": lon_e7 / 1e7,
+                            "target_latitude": lat_e7 / 1e7,
+                            "target_type_code": int(target_type_code),
+                            "military_civil_attr": int(military_civil_attr),
+                            "threat_level": int(threat_level) if threat_level >= 0 else None,
+                            "target_name": target_name or None,
+                            "timestamp": common_ts or _iso_utc_now(),
+                            "active": True,
+                        }
+                    )
+                    offset += doc_entry_size
+
+                if targets:
+                    return {
+                        "source_platform_id": source_platform_id,
+                        "target_count": len(targets),
+                        "targets": targets,
+                    }
+
+        # Backward-compatible compact payload.
+        if len(payload) >= 8:
+            target_count, source_platform_id, _ = struct.unpack("<HH4s", payload[:8])
+            targets = []
+            offset = 8
+            entry_fmt = "<IHIHHiiHBB64s6s"
+            entry_size = struct.calcsize(entry_fmt)
+            for _i in range(target_count):
+                if len(payload) < offset + entry_size:
+                    break
+                (
+                    batch_no,
+                    bearing_x10,
+                    distance_m,
+                    speed_x10,
+                    heading_x10,
+                    lon_e7,
+                    lat_e7,
+                    type_code,
+                    military,
+                    threat,
+                    target_id_raw,
+                    _r,
+                ) = struct.unpack(entry_fmt, payload[offset : offset + entry_size])
+                target_id = target_id_raw.split(b"\x00", 1)[0].decode("utf-8", errors="ignore")
+                targets.append(
+                    {
+                        "source_platform_id": source_platform_id,
+                        "target_id": target_id or f"target-{batch_no}",
+                        "target_batch_no": batch_no,
+                        "target_bearing_deg": bearing_x10 / 10.0,
+                        "target_distance_m": float(distance_m),
+                        "target_absolute_speed_mps": speed_x10 / 10.0,
+                        "target_absolute_heading_deg": heading_x10 / 10.0,
+                        "target_longitude": lon_e7 / 1e7,
+                        "target_latitude": lat_e7 / 1e7,
+                        "target_type_code": type_code,
+                        "military_civil_attr": military,
+                        "threat_level": threat,
+                        "timestamp": common_ts or _iso_utc_now(),
+                        "active": True,
+                    }
+                )
+                offset += entry_size
+
+            return {
+                "source_platform_id": source_platform_id,
+                "target_count": len(targets),
+                "targets": targets,
+            }
 
     return {"raw_hex": body.hex()}

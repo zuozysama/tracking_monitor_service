@@ -35,10 +35,11 @@ TASK_ID=task-tracking-1001 bash Linux_demo/send_task_terminate.sh
 
 ## Env
 
-- `BASE_URL` 默认 `http://127.0.0.1:8080`
+- `BASE_URL` 默认 `http://0.0.0.0:80`
 - `TASK_ID` 默认 `task-tracking-demo-001`
 
 示例：
 ```bash
-BASE_URL=http://127.0.0.1:80 TASK_ID=task-tracking-2001 bash Linux_demo/send_scene_tracking.sh
+BASE_URL=http://0.0.0.0:80 TASK_ID=task-tracking-2001 bash Linux_demo/send_scene_tracking.sh
 ```
+

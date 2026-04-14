@@ -1,0 +1,47 @@
+version: "3.9"
+
+services:
+  cc_cm_tracking_monitor_service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: cc_cm_tracking_monitor_service:pinggao
+    container_name: cc_cm_tracking_monitor_service
+    restart: unless-stopped
+    ports:
+      - "8000:80"
+    environment:
+      PORT: "80"
+      BASE_URL: "http://127.0.0.1:80"
+
+      DDS_MODE: "real"
+      DDS_PLATFORM: "linux"
+      DDS_CONFIG_PATH: "/app/config/dds_settings.yaml"
+      DDS_DOMAIN_ID: "001"
+      DDS_QOS_PROFILE: "Reliable"
+      DDS_TOPIC_PREFIX: "cc_cm_tracking_monitor_service.v1."
+      DDS_TOPIC_TASK_UPDATE: "cc_cm_tracking_monitor_service.v1.task_update_topic"
+      DDS_TOPIC_PREPLAN_RESULT: "cc_cm_tracking_monitor_service.v1.preplan_result_topic"
+      DDS_TOPIC_MANUAL_SELECTION_REQUEST: "cc_cm_tracking_monitor_service.v1.manual_selection_request_topic"
+      DDS_TOPIC_MANUAL_SWITCH_REQUEST: "cc_cm_tracking_monitor_service.v1.manual_switch_request_topic"
+      DDS_TOPIC_ELECTRO_OPTICAL_LINKAGE_CMD: "cc_cm_tracking_monitor_service.v1.electro_optical_linkage_cmd_topic"
+      DDS_TOPIC_STREAM_MEDIA_PARAM: "cc_cm_tracking_monitor_service.v1.stream_media_param_topic"
+      DDS_TOPIC_OWNSHIP_NAVIGATION: "cc_cm_tracking_monitor_service.v1.ownship_navigation_topic"
+      DDS_TOPIC_TARGET_PERCEPTION: "cc_cm_tracking_monitor_service.v1.target_perception_topic"
+
+      DDS_SDK_ROOT: "/app/thirdparty/ljdds/DDSCore3.0.1"
+      DDS_SDK_ARCH_DIR: "ft2000KylinV10GFgcc9.3.0"
+      DDS_QOS_FILE: "/app/thirdparty/ljdds/DDSCore3.0.1/qosconf/example.xml"
+      DDS_LICENSE_FILE: "/app/thirdparty/ljdds/DDSCore3.0.1/ljddslicense.lic"
+      DDS_LIB_DIR: "/app/thirdparty/ljdds/DDSCore3.0.1/lib/ft2000KylinV10GFgcc9.3.0"
+      LJDDSHOME: "/app/thirdparty/ljdds/DDSCore3.0.1"
+      LJDDS_HOME: "/app/thirdparty/ljdds/DDSCore3.0.1"
+
+      FFMPEG_BIN: "ffmpeg"
+      MEDIA_OUTPUT_DIR: "artifacts/media"
+      LJDDS_DOCKER_LIC: "1"
+    volumes:
+      - ./config:/app/config:ro
+      - ./artifacts/media:/app/artifacts/media
+    command: ["sh", "/app/docker-entrypoint-dds.sh"]
+

@@ -12,6 +12,7 @@ class DdsRuntimeConfig:
     platform: str
     domain_id: int
     qos_file: str
+    qos_profile: str
     license_file: str
     participant_name: str
 
@@ -35,6 +36,11 @@ def load_dds_runtime_config() -> DdsRuntimeConfig:
     platform = os.getenv("DDS_PLATFORM", str(runtime_cfg.get("platform", "win"))).strip().lower()
     domain_id = int(os.getenv("DDS_DOMAIN_ID", runtime_cfg.get("domain_id", 0)))
     qos_file = os.getenv("DDS_QOS_FILE", str(runtime_cfg.get("qos_file", "config/dds_qos.xml")))
+    qos_profile = os.getenv("DDS_QOS_PROFILE", str(runtime_cfg.get("qos_profile", "BestEffort"))).strip()
+    if qos_profile.lower() in {"reliable", "default_reliable"}:
+        qos_profile = "Reliable"
+    else:
+        qos_profile = "BestEffort"
     license_file = os.getenv("DDS_LICENSE_FILE", str(runtime_cfg.get("license_file", "")))
     participant_name = os.getenv(
         "DDS_PARTICIPANT_NAME",
@@ -46,6 +52,7 @@ def load_dds_runtime_config() -> DdsRuntimeConfig:
         platform=platform,
         domain_id=domain_id,
         qos_file=qos_file,
+        qos_profile=qos_profile,
         license_file=license_file,
         participant_name=participant_name,
     )

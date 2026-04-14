@@ -33,6 +33,7 @@ class RealLjdssAdapter(DdsAdapter):
         self._sub_topics: set[str] = set()
         self._sub_handlers: dict[str, list[Callable[[dict], None]]] = {}
         self._seq = 0
+        self._qos_profile = cfg.qos_profile or "BestEffort"
         self._try_load_sdk()
 
     def _log(self, topic: str, payload: dict, adapter: str, reason: str = "", wire_length: int = 0) -> None:
@@ -47,6 +48,31 @@ class RealLjdssAdapter(DdsAdapter):
         if wire_length:
             item["wire_length"] = wire_length
         collaboration_store.append_dds_publish_log(item)
+
+    def _log_subscribe(
+        self,
+        topic: str,
+        decoded: dict,
+        src: int,
+        dst: int,
+        raw_hex: str,
+        body_hex: str,
+        type_name: str,
+        sample_size: int,
+    ) -> None:
+        collaboration_store.append_dds_subscribe_log(
+            {
+                "topic": topic,
+                "type_name": type_name,
+                "src": src,
+                "dst": dst,
+                "sample_size": sample_size,
+                "raw_hex": raw_hex,
+                "body_hex": body_hex,
+                "decoded": decoded,
+                "receive_time": utc_now(),
+            }
+        )
 
     def _try_load_sdk(self) -> None:
         try:
@@ -131,6 +157,7 @@ class RealLjdssAdapter(DdsAdapter):
                     total_len = int(getattr(header, "length", 0))
                     if total_len <= head_size or total_len > len(msg):
                         total_len = min(len(msg), int(size) if int(size) > 0 else len(msg))
+                    raw_packet = msg[:total_len]
                     body = msg[head_size:total_len]
 
                     topic = topic_name.decode("utf-8", errors="ignore") if isinstance(topic_name, (bytes, bytearray)) else str(topic_name)
@@ -138,6 +165,18 @@ class RealLjdssAdapter(DdsAdapter):
                     if isinstance(decoded, dict):
                         decoded.setdefault("src", int(sample_obj.contents.SRC))
                         decoded.setdefault("dst", int(sample_obj.contents.DST))
+                    outer._log_subscribe(
+                        topic=topic,
+                        decoded=decoded if isinstance(decoded, dict) else {"decoded": str(decoded)},
+                        src=int(sample_obj.contents.SRC),
+                        dst=int(sample_obj.contents.DST),
+                        raw_hex=raw_packet.hex(),
+                        body_hex=body.hex(),
+                        type_name=type_name.decode("utf-8", errors="ignore")
+                        if isinstance(type_name, (bytes, bytearray))
+                        else str(type_name),
+                        sample_size=int(size),
+                    )
 
                     handlers = outer._sub_handlers.get(topic, [])
                     for handler in handlers:
@@ -171,7 +210,7 @@ class RealLjdssAdapter(DdsAdapter):
     def _ensure_pub_topic(self, topic: str) -> None:
         if topic in self._pub_topics:
             return
-        self._dds.pub_with_profile(topic, "Library", "BestEffort", None)
+        self._dds.pub_with_profile(topic, "Library", self._qos_profile, None)
         self._pub_topics.add(topic)
 
     def publish(self, topic: str, payload: dict) -> None:
@@ -229,7 +268,7 @@ class RealLjdssAdapter(DdsAdapter):
             return
 
         try:
-            self._dds.sub_with_profile(topic, "Library", "BestEffort", self._dr_listener)
+            self._dds.sub_with_profile(topic, "Library", self._qos_profile, self._dr_listener)
             self._sub_topics.add(topic)
         except Exception as exc:
             self._log(topic=topic, payload={}, adapter="real-subscribe-error", reason=str(exc))

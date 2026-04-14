@@ -21,6 +21,7 @@ class CollaborationStore:
         self._manual_selection_feedbacks: List[dict] = []
         self._manual_switch_feedbacks: List[dict] = []
         self._dds_publish_logs: List[dict] = []
+        self._dds_subscribe_logs: List[dict] = []
 
     def get_optronic_status(self, task_id: str) -> OptronicStatus:
         if task_id not in self._optronic_status_by_task:
@@ -131,6 +132,12 @@ class CollaborationStore:
     def get_dds_publish_logs(self) -> List[dict]:
         return self._dds_publish_logs
 
+    def append_dds_subscribe_log(self, item: dict) -> None:
+        self._dds_subscribe_logs.append(item)
+
+    def get_dds_subscribe_logs(self) -> List[dict]:
+        return self._dds_subscribe_logs
+
     def reset(self) -> None:
         self._optronic_status_by_task.clear()
         self._photo_logs.clear()
@@ -147,6 +154,7 @@ class CollaborationStore:
         self._manual_selection_feedbacks.clear()
         self._manual_switch_feedbacks.clear()
         self._dds_publish_logs.clear()
+        self._dds_subscribe_logs.clear()
 
 
 collaboration_store = CollaborationStore()

@@ -10,3 +10,9 @@ artifacts/
 tests/
 examples/
 *.log
+*.pdf
+*.png
+*.jpg
+*.jpeg
+*.txt
+!requirements.txt

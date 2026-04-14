@@ -181,8 +181,22 @@ class ApiContractTestCase(unittest.TestCase):
         docs_resp = self.client.get("/api/swagger_ui/index.html")
         self.assertEqual(docs_resp.status_code, 200)
 
+    def test_dds_subscribe_logs_endpoint(self):
+        resp = self.client.get("/mock/collaboration/dds/subscribe-logs")
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["code"], 200)
+        self.assertIn("items", body["data"])
+
+    def test_dds_debug_status_endpoint(self):
+        resp = self.client.get("/mock/collaboration/dds/debug-status")
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["code"], 200)
+        self.assertIn("adapter_class", body["data"])
+        self.assertIn("adapter_runtime", body["data"])
+        self.assertIn("log_stats", body["data"])
+
 
 if __name__ == "__main__":
     unittest.main()
-
-

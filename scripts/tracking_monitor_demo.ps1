@@ -1,6 +1,6 @@
 $ErrorActionPreference = "Stop"
 
-$BaseUrl = "http://127.0.0.1:8080"
+$BaseUrl = if ([string]::IsNullOrWhiteSpace($env:BASE_URL)) { "http://0.0.0.0:80" } else { $env:BASE_URL }
 $JsonHeader = @("Content-Type: application/json")
 
 function Step($message) {

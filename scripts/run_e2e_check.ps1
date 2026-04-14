@@ -1,9 +1,12 @@
-﻿param(
+param(
   [string]$TaskId = "task-tracking-e2e-001",
-  [string]$BaseUrl = "http://127.0.0.1:8080"
+  [string]$BaseUrl = ""
 )
 
 $ErrorActionPreference = "Stop"
+if ([string]::IsNullOrWhiteSpace($BaseUrl)) {
+  $BaseUrl = if ([string]::IsNullOrWhiteSpace($env:BASE_URL)) { "http://0.0.0.0:80" } else { $env:BASE_URL }
+}
 
 Write-Host "[1/4] health check..."
 $health = Invoke-RestMethod -Method Get -Uri "$BaseUrl/api/v1/healthz"
@@ -58,3 +61,4 @@ $result = [pscustomobject]@{
 }
 
 $result | ConvertTo-Json -Depth 12
+

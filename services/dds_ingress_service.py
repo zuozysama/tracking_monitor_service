@@ -9,13 +9,14 @@ from utils.time_utils import utc_now
 
 def _on_ownship_message(data: dict) -> None:
     try:
+        msg_ts = data.get("timestamp") or utc_now()
         model = OwnShipState(
             platform_id=int(data.get("platform_id", 0)),
             speed_mps=float(data.get("speed_mps", 0.0)),
             heading_deg=float(data.get("heading_deg", 0.0)) % 360.0,
             longitude=float(data.get("longitude", 0.0)),
             latitude=float(data.get("latitude", 0.0)),
-            timestamp=utc_now(),
+            timestamp=msg_ts,
         )
         situation_store.update_ownship(model)
     except Exception:
@@ -27,6 +28,7 @@ def _on_target_perception_message(data: dict) -> None:
     models: list[TargetState] = []
     for item in targets_raw:
         try:
+            msg_ts = item.get("timestamp") or data.get("timestamp") or utc_now()
             models.append(
                 TargetState(
                     source_platform_id=item.get("source_platform_id"),
@@ -41,7 +43,7 @@ def _on_target_perception_message(data: dict) -> None:
                     target_type_code=item.get("target_type_code"),
                     military_civil_attr=item.get("military_civil_attr"),
                     threat_level=item.get("threat_level"),
-                    timestamp=utc_now(),
+                    timestamp=msg_ts,
                     active=True,
                 )
             )

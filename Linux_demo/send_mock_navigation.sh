@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BASE_URL="${BASE_URL:-http://127.0.0.1:8080}"
+BASE_URL="${BASE_URL:-http://0.0.0.0:80}"
 NOW_UTC="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
 curl -sS -X POST "${BASE_URL}/mock/dds/navigation" \
