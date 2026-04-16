@@ -1,8 +1,10 @@
 import struct
 import unittest
 
-from adapters.dds.topic_codec import decode_topic_payload
+from adapters.dds.topic_codec import decode_topic_payload, encode_topic_payload
 from domain.dds_contract import OWNSHIP_NAVIGATION_TOPIC, TARGET_PERCEPTION_TOPIC
+
+GEO_LSB_DEG = 180.0 / (2 ** 31)
 
 
 def _common_header(ts_sec: int = 1700000000, ts_sub_ms_x1e6: int = 500000000) -> bytes:
@@ -20,32 +22,67 @@ def _common_header(ts_sec: int = 1700000000, ts_sub_ms_x1e6: int = 500000000) ->
 
 
 class TopicCodecDecodeTestCase(unittest.TestCase):
-    def test_decode_ownship_doc_format(self):
-        nav_payload = struct.pack(
-            "<HHHhhhHiihhhhhhhh",
-            2001,        # platform_id
-            1234,        # speed 12.34 m/s
-            9050,        # heading 90.50 deg
-            10,          # vx
-            -2,          # vy
-            0,           # vz
-            9000,        # bow_heading
-            int(121.5123456 * 1e7),
-            int(31.2234567 * 1e7),
-            0,           # angular vel
-            1, 1, 1,     # ax/ay/az
-            0,           # angular acc
-            0, 0, 0,     # roll/pitch/heave
+    def test_encode_ownship_doc35_layout(self):
+        body = encode_topic_payload(
+            OWNSHIP_NAVIGATION_TOPIC,
+            {
+                "platform_id": 2001,
+                "speed_mps": 12.34,
+                "heading_deg": 271.0,
+                "longitude": 121.5123456,
+                "latitude": 31.2234567,
+                "protocol_type": 0,
+                "protocol_version": 1,
+                "msg_type": 1,
+                "msg_seq": 9,
+                "reserve": 0,
+                "timestamp_0p1ms": 123456789,
+            },
         )
-        body = _common_header() + nav_payload
+        self.assertEqual(len(body), 35)
+        protocol_type, version, packet_len, msg_type, seq, reserve, ts_0p1ms = struct.unpack("<IBHBIBQ", body[:21])
+        self.assertEqual(protocol_type, 0)
+        self.assertEqual(version, 1)
+        self.assertEqual(packet_len, 35)
+        self.assertEqual(msg_type, 1)
+        self.assertEqual(seq, 9)
+        self.assertEqual(reserve, 0)
+        self.assertEqual(ts_0p1ms, 123456789)
 
-        decoded = decode_topic_payload(OWNSHIP_NAVIGATION_TOPIC, body)
+        uid, speed_raw, heading_raw, lon_raw, lat_raw = struct.unpack("<HHHii", body[21:35])
+        self.assertEqual(uid, 2001)
+        self.assertEqual(speed_raw, 1234)
+        self.assertEqual(heading_raw, 271)
+        self.assertAlmostEqual(lon_raw * GEO_LSB_DEG, 121.5123456, places=5)
+        self.assertAlmostEqual(lat_raw * GEO_LSB_DEG, 31.2234567, places=5)
+
+    def test_decode_ownship_shifted_doc35_layout(self):
+        lon_raw = int(round(121.5123456 * (2 ** 31) / 180.0))
+        lat_raw = int(round(31.2234567 * (2 ** 31) / 180.0))
+
+        v3_head = b"\x00" * 16
+        doc35 = bytearray(35)
+        doc35[0:21] = bytes(range(1, 22))          # inner 21-byte protocol head
+        struct.pack_into("<H", doc35, 21, 2001)    # uid
+        struct.pack_into("<H", doc35, 23, 1234)    # speed_raw -> 12.34 m/s
+        struct.pack_into("<H", doc35, 25, 271)     # heading_raw -> 271 deg
+        struct.pack_into("<i", doc35, 27, lon_raw)
+        struct.pack_into("<i", doc35, 31, lat_raw)
+
+        decoded = decode_topic_payload(OWNSHIP_NAVIGATION_TOPIC, v3_head + bytes(doc35))
         self.assertEqual(decoded["platform_id"], 2001)
         self.assertAlmostEqual(decoded["speed_mps"], 12.34, places=2)
-        self.assertAlmostEqual(decoded["heading_deg"], 90.5, places=2)
-        self.assertAlmostEqual(decoded["longitude"], 121.5123456, places=7)
-        self.assertAlmostEqual(decoded["latitude"], 31.2234567, places=7)
+        self.assertAlmostEqual(decoded["heading_deg"], 271.0, places=2)
+        self.assertAlmostEqual(decoded["longitude"], lon_raw * GEO_LSB_DEG, places=7)
+        self.assertAlmostEqual(decoded["latitude"], lat_raw * GEO_LSB_DEG, places=7)
+        self.assertEqual(decoded.get("decode_format"), "v3_16_plus_35_shifted_fields")
+        self.assertEqual(decoded["offsets"]["uid"], [37, 38])
         self.assertTrue(str(decoded["timestamp"]).endswith("Z"))
+
+    def test_decode_ownship_shifted_doc35_too_short(self):
+        decoded = decode_topic_payload(OWNSHIP_NAVIGATION_TOPIC, b"\x00" * 34)
+        self.assertIn("decode_error", decoded)
+        self.assertIn("16+35 layout", decoded["decode_error"])
 
     def test_decode_target_perception_doc_format(self):
         name = "TARGET-A".encode("gb2312")
@@ -90,21 +127,84 @@ class TopicCodecDecodeTestCase(unittest.TestCase):
         self.assertEqual(t0["military_civil_attr"], 1)
         self.assertEqual(t0["threat_level"], 3)
         self.assertEqual(t0["target_name"], "TARGET-A")
+        self.assertEqual(t0["target_generated_timestamp_raw"], 123456)
+        self.assertTrue((t0.get("target_generated_timestamp") or "").endswith("Z"))
 
-    def test_decode_ownship_compact_backward_compatible(self):
-        compact = struct.pack(
-            "<HHHii8s",
-            2002,
-            1000,  # 10.00 m/s
-            900,   # 90.0 deg (old compact uses x10)
+    def test_decode_target_perception_doc_format_u16_target_type(self):
+        name = "TARGET-B".encode("gb2312")
+        name = name + b"\x00" * (40 - len(name))
+        # target_type_code encoded as uint16 (compat mode)
+        entry = struct.pack(
+            "<HHIHHHHHiiHBBIbHb40sHHHbHH",
+            36,                      # batch_no
+            220,                     # bearing 22.0 deg
+            1800,                    # distance
+            0,                       # height
+            55,                      # abs speed 5.5 m/s
+            1000,                    # abs heading 100.0 deg
+            10,                      # rel speed
+            20,                      # rel heading
             int(121.6 * 1e7),
-            int(31.1 * 1e7),
-            b"\x00" * 8,
+            int(31.3 * 1e7),
+            10,                      # qt
+            0,                       # coord sys
+            1,                       # simulated
+            223344,                  # target ts
+            3,                       # position attr
+            400,                     # target type (u16)
+            2,                       # military_civil_attr
+            name,
+            10, 20, 30,              # length/width/height
+            2,                       # threat
+            11,                      # rcs
+            0,                       # custom2
         )
-        decoded = decode_topic_payload(OWNSHIP_NAVIGATION_TOPIC, compact)
-        self.assertEqual(decoded["platform_id"], 2002)
-        self.assertAlmostEqual(decoded["speed_mps"], 10.0, places=2)
-        self.assertAlmostEqual(decoded["heading_deg"], 90.0, places=1)
+        body = _common_header() + struct.pack("<HH", 1, 2001) + entry
+
+        decoded = decode_topic_payload(TARGET_PERCEPTION_TOPIC, body)
+        self.assertEqual(decoded["target_count"], 1)
+        t0 = decoded["targets"][0]
+        self.assertEqual(t0["target_batch_no"], 36)
+        self.assertEqual(t0["target_type_code"], 400)
+        self.assertEqual(t0["military_civil_attr"], 2)
+        self.assertEqual(t0["target_generated_timestamp_raw"], 223344)
+        self.assertTrue((t0.get("target_generated_timestamp") or "").endswith("Z"))
+
+    def test_decode_target_perception_doc_format_u16_target_type_case2(self):
+        name = "TARGET-U16".encode("gb2312")
+        name = name + b"\x00" * (40 - len(name))
+        entry = struct.pack(
+            "<HHIHHHHHiiHBBIbHb40sHHHbHH",
+            88,                      # batch_no
+            200,                     # bearing 20.0 deg
+            2200,                    # distance
+            0,                       # height
+            60,                      # abs speed 6.0 m/s
+            1800,                    # abs heading 180.0 deg
+            0,                       # rel speed
+            0,                       # rel heading
+            int(121.7 * 1e7),
+            int(31.25 * 1e7),
+            12,                      # qt
+            0,                       # coord sys
+            1,                       # simulated
+            1234500,                 # target ts raw
+            3,                       # position attr
+            400,                     # target type (u16)
+            1,                       # military_civil_attr
+            name,
+            10, 20, 30,              # length/width/height
+            2,                       # threat
+            11,                      # rcs
+            0,                       # custom2
+        )
+        body = _common_header() + struct.pack("<HH", 1, 2001) + entry
+        decoded = decode_topic_payload(TARGET_PERCEPTION_TOPIC, body)
+        self.assertEqual(decoded["target_count"], 1)
+        t0 = decoded["targets"][0]
+        self.assertEqual(t0["target_type_code"], 400)
+        self.assertEqual(t0["target_generated_timestamp_raw"], 1234500)
+        self.assertIsNotNone(t0["target_generated_timestamp"])
 
 
 if __name__ == "__main__":

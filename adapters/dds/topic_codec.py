@@ -15,6 +15,13 @@ from domain.dds_contract import (
     TASK_UPDATE_TOPIC,
 )
 
+NAV_OUTER_V3_HEAD_LEN = 16
+NAV_DOC35_LEN = 35
+NAV_TOTAL_LEN = NAV_OUTER_V3_HEAD_LEN + NAV_DOC35_LEN
+NAV_INNER_PROTO_HEAD_LEN = 21
+NAV_FIELDS_LEN = 14
+NAV_GEO_LSB_DEG = 180.0 / (2 ** 31)
+
 
 def _fit_ascii(value: str, size: int) -> bytes:
     raw = (value or "").encode("utf-8")
@@ -64,14 +71,12 @@ def _parse_common_header(body: bytes) -> tuple[int, str | None]:
     except Exception:
         return 0, None
 
-    # Keep permissive checks to avoid breaking existing compact packets.
     if protocol_type != 0:
         return 0, None
     if length and length > len(body):
         return 0, None
 
     try:
-        # Doc says lower 4 bytes carry millisecond value * 10^6.
         ts_value = float(ts_sec) + float(ts_sub_ms_x1e6) / 1e9
         ts_iso = datetime.fromtimestamp(ts_value, tz=timezone.utc).isoformat().replace("+00:00", "Z")
     except Exception:
@@ -79,15 +84,78 @@ def _parse_common_header(body: bytes) -> tuple[int, str | None]:
     return header_size, ts_iso
 
 
+def _parse_iso_utc(ts_iso: str | None) -> datetime | None:
+    if not ts_iso:
+        return None
+    try:
+        return datetime.fromisoformat(ts_iso.replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def _format_target_generated_ts(common_ts_iso: str | None, target_ts_raw: int) -> str | None:
+    try:
+        base_dt = _parse_iso_utc(common_ts_iso) or datetime.now(timezone.utc)
+        day_start = base_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+        seconds = float(target_ts_raw) * 0.0001
+        out = day_start.timestamp() + seconds
+        return datetime.fromtimestamp(out, tz=timezone.utc).isoformat().replace("+00:00", "Z")
+    except Exception:
+        return None
+
+
+def _nav_timestamp_0p1ms_from_day_start(payload: dict[str, Any]) -> int:
+    supplied = payload.get("timestamp_0p1ms")
+    if supplied is not None:
+        try:
+            return max(0, int(supplied))
+        except Exception:
+            pass
+
+    now = datetime.now(timezone.utc)
+    day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    delta = now - day_start
+    # Lowest significant bit is 0.1ms.
+    ticks = int(round(delta.total_seconds() * 10000.0))
+    return max(0, ticks)
+
+
 def encode_topic_payload(topic: str, payload: dict) -> bytes:
-    # NOTE: little-endian is used here for engineering integration.
+    # 这里只保留你原本其他 topic 的编码逻辑。
+    # 导航 topic 的 encode 当前仍是你原来的工程内紧凑格式；
+    # 本次修正重点是“严格按 dds_listen_nav_test2.py 解码导航消息”。
     if topic == OWNSHIP_NAVIGATION_TOPIC:
+        # 35-byte business packet:
+        # 21-byte protocol header + 14-byte nav fields.
+        protocol_type = _u32(payload.get("protocol_type", 0))
+        version = _u16(payload.get("protocol_version", payload.get("version", 1))) & 0xFF
+        packet_len = NAV_DOC35_LEN
+        msg_type = _u16(payload.get("msg_type", 1)) & 0xFF
+        seq = _u32(payload.get("msg_seq", payload.get("seq", 1)))
+        reserve = _u16(payload.get("reserve", 0)) & 0xFF
+        ts_0p1ms = _nav_timestamp_0p1ms_from_day_start(payload)
+
         platform_id = _u16(payload.get("platform_id", 0))
-        speed_x100 = _u16(round(float(payload.get("speed_mps", 0.0)) * 100))
-        heading_x10 = _u16(round(float(payload.get("heading_deg", 0.0)) * 10))
-        longitude_e7 = _i32(round(float(payload.get("longitude", 0.0)) * 1e7))
-        latitude_e7 = _i32(round(float(payload.get("latitude", 0.0)) * 1e7))
-        return struct.pack("<HHHii8s", platform_id, speed_x100, heading_x10, longitude_e7, latitude_e7, b"\x00" * 8)
+        speed_raw = _u16(round(float(payload.get("speed_mps", 0.0)) * 100.0))
+        heading_raw = _u16(round(float(payload.get("heading_deg", 0.0)))) % 360
+        lon_raw = _i32(round(float(payload.get("longitude", 0.0)) / NAV_GEO_LSB_DEG))
+        lat_raw = _i32(round(float(payload.get("latitude", 0.0)) / NAV_GEO_LSB_DEG))
+
+        return struct.pack(
+            "<IBHBIBQHHHii",
+            protocol_type,
+            version,
+            packet_len,
+            msg_type,
+            seq,
+            reserve,
+            ts_0p1ms,
+            platform_id,
+            speed_raw,
+            heading_raw,
+            lon_raw,
+            lat_raw,
+        )
 
     if topic == TARGET_PERCEPTION_TOPIC:
         source_platform_id = _u16(payload.get("source_platform_id", 0))
@@ -223,102 +291,150 @@ def encode_topic_payload(topic: str, payload: dict) -> bytes:
 
 
 def decode_topic_payload(topic: str, body: bytes) -> dict:
-    ownship_fmt = "<HHHii8s"
-    ownship_size = struct.calcsize(ownship_fmt)
     if topic == OWNSHIP_NAVIGATION_TOPIC:
-        common_offset, common_ts = _parse_common_header(body)
-        payload = body[common_offset:] if common_offset else body
+        # 严格对齐 dds_listen_nav_test2.py：
+        # 输入必须是完整 raw MSG = 16-byte V3 head + DOC35(35 bytes) + optional tail
+        raw_msg = body
 
-        # Doc-aligned nav payload (without common header).
-        # platform_id + ground_speed + course + vx/vy/vz + heading + lon + lat + angular vel +
-        # ax/ay/az + angular acc + roll + pitch + heave
-        nav_full_fmt = "<HHHhhhHiihhhhhhhh"
-        nav_full_size = struct.calcsize(nav_full_fmt)
-        if len(payload) >= nav_full_size:
-            (
-                platform_id,
-                speed_x100,
-                heading_x100,
-                _vx_x100,
-                _vy_x100,
-                _vz_x100,
-                _bow_heading_x100,
-                lon_e7,
-                lat_e7,
-                _ang_vel_x100,
-                _ax_x10,
-                _ay_x10,
-                _az_x10,
-                _ang_acc_x100,
-                _roll_x10,
-                _pitch_x10,
-                _heave_x10,
-            ) = struct.unpack(nav_full_fmt, payload[:nav_full_size])
+        if len(raw_msg) < NAV_TOTAL_LEN:
             return {
-                "platform_id": platform_id,
-                "speed_mps": speed_x100 / 100.0,
-                "heading_deg": heading_x100 / 100.0,
-                "longitude": lon_e7 / 1e7,
-                "latitude": lat_e7 / 1e7,
-                "timestamp": common_ts or _iso_utc_now(),
+                "raw_hex": raw_msg.hex(),
+                "decode_error": (
+                    f"raw MSG too short for 16+35 layout: got {len(raw_msg)} bytes, "
+                    f"need at least {NAV_TOTAL_LEN}"
+                ),
             }
 
-        # Backward-compatible compact payload.
-        if len(payload) < ownship_size:
-            return {"raw_hex": body.hex(), "decode_error": f"ownship body too short: {len(payload)}<{ownship_size}"}
-        platform_id, speed_x100, heading_x10, lon_e7, lat_e7, _ = struct.unpack(ownship_fmt, payload[:ownship_size])
+        doc35 = raw_msg[NAV_OUTER_V3_HEAD_LEN:NAV_TOTAL_LEN]
+        nav14 = raw_msg[NAV_OUTER_V3_HEAD_LEN + NAV_INNER_PROTO_HEAD_LEN:NAV_TOTAL_LEN]
+        if len(nav14) < NAV_FIELDS_LEN:
+            return {
+                "raw_hex": raw_msg.hex(),
+                "decode_error": f"NAV14 too short: got {len(nav14)} bytes, need {NAV_FIELDS_LEN}",
+            }
+
+        uid = int.from_bytes(nav14[0:2], byteorder="little", signed=False)
+        speed_raw = int.from_bytes(nav14[2:4], byteorder="little", signed=False)
+        heading_raw = int.from_bytes(nav14[4:6], byteorder="little", signed=False)
+        lon_raw = int.from_bytes(nav14[6:10], byteorder="little", signed=True)
+        lat_raw = int.from_bytes(nav14[10:14], byteorder="little", signed=True)
+
+        speed_mps = float(speed_raw) * 0.01
+        heading_deg = float(heading_raw) % 360.0
+        longitude = float(lon_raw) * NAV_GEO_LSB_DEG
+        latitude = float(lat_raw) * NAV_GEO_LSB_DEG
+
         return {
-            "platform_id": platform_id,
-            "speed_mps": speed_x100 / 100.0,
-            "heading_deg": heading_x10 / 10.0,
-            "longitude": lon_e7 / 1e7,
-            "latitude": lat_e7 / 1e7,
-            "timestamp": common_ts or _iso_utc_now(),
+            "format": "v3_16_plus_35_shifted_fields",
+            "offsets": {
+                "uid": [37, 38],
+                "speed_raw": [39, 40],
+                "heading_raw": [41, 42],
+                "lon_raw": [43, 46],
+                "lat_raw": [47, 50],
+            },
+            "platform_id": uid,
+            "uid": uid,
+            "raw_len": len(raw_msg),
+            "expected_raw_len": NAV_TOTAL_LEN,
+            "speed_raw": speed_raw,
+            "heading_raw": heading_raw,
+            "lon_raw": lon_raw,
+            "lat_raw": lat_raw,
+            "speed_mps": speed_mps,
+            "heading_deg": heading_deg,
+            "longitude": longitude,
+            "latitude": latitude,
+            "inner_proto21_hex": raw_msg[NAV_OUTER_V3_HEAD_LEN : NAV_OUTER_V3_HEAD_LEN + NAV_INNER_PROTO_HEAD_LEN].hex(" "),
+            "nav14_hex": nav14.hex(" "),
+            "doc35_prefix_5bytes_hex": doc35[0:5].hex(" "),
+            "doc35_hex": doc35.hex(" "),
+            "raw_hex": raw_msg.hex(),
+            "timestamp": _iso_utc_now(),
+            "decode_format": "v3_16_plus_35_shifted_fields",
         }
 
     if topic == TARGET_PERCEPTION_TOPIC:
         common_offset, common_ts = _parse_common_header(body)
         payload = body[common_offset:] if common_offset else body
 
-        # Doc-aligned packet:
-        # count(2) + source_platform_id(2) + repeated target entries (88 bytes each).
         if len(payload) >= 4:
             target_count, source_platform_id = struct.unpack("<HH", payload[:4])
             targets = []
             offset = 4
-            doc_entry_fmt = "<HHIHHHHHiiHBBIbbb40sHHHbHH"
-            doc_entry_size = struct.calcsize(doc_entry_fmt)
-            if len(payload) >= offset + doc_entry_size:
+            doc_entry_formats = [
+                ("<HHIHHHHHiiHBBIbHb40sHHHbHH", "u16"),
+                ("<HHIHHHHHiiHBBIbbb40sHHHbHH", "i8"),
+            ]
+            for doc_entry_fmt, target_type_mode in doc_entry_formats:
+                doc_entry_size = struct.calcsize(doc_entry_fmt)
+                if len(payload) < offset + doc_entry_size:
+                    continue
+                if len(payload) < offset + doc_entry_size * max(1, target_count):
+                    continue
+
+                targets = []
+                offset_local = offset
                 for _i in range(target_count):
-                    if len(payload) < offset + doc_entry_size:
+                    if len(payload) < offset_local + doc_entry_size:
                         break
-                    (
-                        batch_no,
-                        bearing_x10,
-                        distance_m,
-                        _height_x10,
-                        abs_speed_x10,
-                        abs_heading_x10,
-                        _rel_speed_x10,
-                        _rel_heading_x10,
-                        lon_e7,
-                        lat_e7,
-                        _qt_value,
-                        _coord_sys,
-                        _is_simulated,
-                        _target_ts_sub,
-                        _position_attr,
-                        target_type_code,
-                        military_civil_attr,
-                        target_name_raw,
-                        _target_len_x10,
-                        _target_width_x10,
-                        _target_height_x10,
-                        threat_level,
-                        _rcs_x10,
-                        _custom2,
-                    ) = struct.unpack(doc_entry_fmt, payload[offset : offset + doc_entry_size])
+                    unpacked = struct.unpack(doc_entry_fmt, payload[offset_local : offset_local + doc_entry_size])
+                    if target_type_mode == "i8":
+                        (
+                            batch_no,
+                            bearing_x10,
+                            distance_m,
+                            _height_x10,
+                            abs_speed_x10,
+                            abs_heading_x10,
+                            _rel_speed_x10,
+                            _rel_heading_x10,
+                            lon_e7,
+                            lat_e7,
+                            _qt_value,
+                            _coord_sys,
+                            _is_simulated,
+                            target_ts_raw,
+                            _position_attr,
+                            target_type_code,
+                            military_civil_attr,
+                            target_name_raw,
+                            _target_len_x10,
+                            _target_width_x10,
+                            _target_height_x10,
+                            threat_level,
+                            _rcs_x10,
+                            _custom2,
+                        ) = unpacked
+                    else:
+                        (
+                            batch_no,
+                            bearing_x10,
+                            distance_m,
+                            _height_x10,
+                            abs_speed_x10,
+                            abs_heading_x10,
+                            _rel_speed_x10,
+                            _rel_heading_x10,
+                            lon_e7,
+                            lat_e7,
+                            _qt_value,
+                            _coord_sys,
+                            _is_simulated,
+                            target_ts_raw,
+                            _position_attr,
+                            target_type_code,
+                            military_civil_attr,
+                            target_name_raw,
+                            _target_len_x10,
+                            _target_width_x10,
+                            _target_height_x10,
+                            threat_level,
+                            _rcs_x10,
+                            _custom2,
+                        ) = unpacked
                     target_name = _decode_gb2312_cstr(target_name_raw)
+                    target_generated_ts = _format_target_generated_ts(common_ts, int(target_ts_raw))
                     targets.append(
                         {
                             "source_platform_id": source_platform_id,
@@ -334,11 +450,13 @@ def decode_topic_payload(topic: str, body: bytes) -> dict:
                             "military_civil_attr": int(military_civil_attr),
                             "threat_level": int(threat_level) if threat_level >= 0 else None,
                             "target_name": target_name or None,
+                            "target_generated_timestamp_raw": int(target_ts_raw),
+                            "target_generated_timestamp": target_generated_ts,
                             "timestamp": common_ts or _iso_utc_now(),
                             "active": True,
                         }
                     )
-                    offset += doc_entry_size
+                    offset_local += doc_entry_size
 
                 if targets:
                     return {
@@ -347,7 +465,6 @@ def decode_topic_payload(topic: str, body: bytes) -> dict:
                         "targets": targets,
                     }
 
-        # Backward-compatible compact payload.
         if len(payload) >= 8:
             target_count, source_platform_id, _ = struct.unpack("<HH4s", payload[:8])
             targets = []

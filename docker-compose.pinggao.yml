@@ -2,14 +2,11 @@ version: "3.9"
 
 services:
   cc_cm_tracking_monitor_service:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: cc_cm_tracking_monitor_service:pinggao
+    image: cc_cm_tracking_monitor_service:real-v6
     container_name: cc_cm_tracking_monitor_service
     restart: unless-stopped
     ports:
-      - "8000:80"
+      - "80:80"
     environment:
       PORT: "80"
       BASE_URL: "http://127.0.0.1:80"
@@ -35,7 +32,7 @@ services:
       DDS_LICENSE_FILE: "/app/thirdparty/ljdds/DDSCore3.0.1/ljddslicense.lic"
       DDS_LIB_DIR: "/app/thirdparty/ljdds/DDSCore3.0.1/lib/ft2000KylinV10GFgcc9.3.0"
       LJDDSHOME: "/app/thirdparty/ljdds/DDSCore3.0.1"
-      LJDDS_HOME: "/app/thirdparty/ljdds/DDSCore3.0.1"
+      LD_LIBRARY_PATH: "/app/thirdparty/ljdds/DDSCore3.0.1/lib/ft2000KylinV10GFgcc9.3.0"
 
       FFMPEG_BIN: "ffmpeg"
       MEDIA_OUTPUT_DIR: "artifacts/media"

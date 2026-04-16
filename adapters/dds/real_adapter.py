@@ -6,6 +6,7 @@ from typing import Callable
 from adapters.dds.base import DdsAdapter
 from adapters.dds.config import DdsRuntimeConfig
 from adapters.dds.topic_codec import decode_topic_payload, encode_topic_payload
+from domain.dds_contract import OWNSHIP_NAVIGATION_TOPIC
 from store.collaboration_store import collaboration_store
 from utils.time_utils import utc_now
 
@@ -150,6 +151,7 @@ class RealLjdssAdapter(DdsAdapter):
 
                     sample_obj = cast(sample, POINTER(CSMXP_V3))
                     msg = bytes(sample_obj.contents.MSG)
+
                     head_size = CSMXP_V3_MSG_HEAD.size()
                     header = CSMXP_V3_MSG_HEAD()
                     header.unpack(msg[0:head_size])
@@ -157,14 +159,24 @@ class RealLjdssAdapter(DdsAdapter):
                     total_len = int(getattr(header, "length", 0))
                     if total_len <= head_size or total_len > len(msg):
                         total_len = min(len(msg), int(size) if int(size) > 0 else len(msg))
-                    raw_packet = msg[:total_len]
-                    body = msg[head_size:total_len]
 
-                    topic = topic_name.decode("utf-8", errors="ignore") if isinstance(topic_name, (bytes, bytearray)) else str(topic_name)
-                    decoded = decode_topic_payload(topic, body)
+                    raw_packet = msg[:total_len]
+                    body = raw_packet[head_size:total_len]
+
+                    topic = (
+                        topic_name.decode("utf-8", errors="ignore")
+                        if isinstance(topic_name, (bytes, bytearray))
+                        else str(topic_name)
+                    )
+
+                    # For NAV topic, decode from raw_packet (length-constrained by V3 header).
+                    decode_input = raw_packet if topic == OWNSHIP_NAVIGATION_TOPIC else body
+                    decoded = decode_topic_payload(topic, decode_input)
+
                     if isinstance(decoded, dict):
                         decoded.setdefault("src", int(sample_obj.contents.SRC))
                         decoded.setdefault("dst", int(sample_obj.contents.DST))
+
                     outer._log_subscribe(
                         topic=topic,
                         decoded=decoded if isinstance(decoded, dict) else {"decoded": str(decoded)},
@@ -215,7 +227,12 @@ class RealLjdssAdapter(DdsAdapter):
 
     def publish(self, topic: str, payload: dict) -> None:
         if not self._ensure_started():
-            self._log(topic=topic, payload=payload, adapter="real-fallback", reason=f"ljdds startup unavailable: {self._load_error}")
+            self._log(
+                topic=topic,
+                payload=payload,
+                adapter="real-fallback",
+                reason=f"ljdds startup unavailable: {self._load_error}",
+            )
             return
 
         try:
@@ -294,3 +311,4 @@ class RealLjdssAdapter(DdsAdapter):
             self._dr_listener = None
             self._pub_topics.clear()
             self._sub_topics.clear()
+
