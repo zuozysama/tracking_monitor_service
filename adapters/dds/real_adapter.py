@@ -161,7 +161,7 @@ class RealLjdssAdapter(DdsAdapter):
                         total_len = min(len(msg), int(size) if int(size) > 0 else len(msg))
 
                     raw_packet = msg[:total_len]
-                    body = raw_packet[head_size:total_len]
+                    body = raw_packet[0:total_len]
 
                     topic = (
                         topic_name.decode("utf-8", errors="ignore")
