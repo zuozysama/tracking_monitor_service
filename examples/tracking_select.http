@@ -129,17 +129,16 @@ Content-Type: {{json}}
   ]
 }
 
-### 4. Create tracking task in escort mode (without explicit target_id)
+### 4. Create escort task (without explicit target_id)
 POST {{baseUrl}}/api/v1/tasks
 Content-Type: {{json}}
 
 {
   "task_id": "{{taskId}}",
-  "task_type": "tracking",
+  "task_type": "escort",
   "task_name": "tracking-select-merged-test",
   "task_source": "planning_service",
   "priority": 1,
-  "mode": "escort",
   "target_info": {
     "target_type_code": 106
   },

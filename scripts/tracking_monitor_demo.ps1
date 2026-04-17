@@ -85,11 +85,10 @@ Step "创建 tracking 任务"
 $trackingTask = @'
 {
   "task_id": "task-tracking-001",
-  "task_type": "tracking",
+  "task_type": "escort",
   "task_name": "伴随测试任务",
   "task_source": "planning_service",
   "priority": 1,
-  "mode": "escort",
   "target_info": {
     "target_id": "target-001",
     "target_batch_no": 1,

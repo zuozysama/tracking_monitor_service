@@ -9,11 +9,10 @@ curl -sS -X POST "${BASE_URL}/api/v1/tasks" \
   -d @- <<JSON
 {
   "task_id": "${TASK_ID}",
-  "task_type": "tracking",
+  "task_type": "escort",
   "task_name": "tracking-http-style-demo",
   "task_source": "linux_demo",
   "priority": 1,
-  "mode": "escort",
   "target_info": {
     "target_id": "target-001",
     "target_batch_no": 1,

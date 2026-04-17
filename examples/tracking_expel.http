@@ -3,7 +3,7 @@
 @taskId = task-tracking-expel-sequence-001
 
 ### Tracking expel sequence test
-### Goal: mode=expel with 2-stage verification
+### Goal: task_type=expel with 2-stage verification
 ### Stage-1: escort-style rear point (rear / left_rear / right_rear), distance uses escort_distance_m
 ### Stage-2: same-side left/right point, distance uses expel_distance_m (closer, e.g. 200m)
 ### Notes:
@@ -53,17 +53,16 @@ Content-Type: {{json}}
   ]
 }
 
-### 4. Create tracking task in expel mode
+### 4. Create expel task
 POST {{baseUrl}}/api/v1/tasks
 Content-Type: {{json}}
 
 {
   "task_id": "{{taskId}}",
-  "task_type": "tracking",
+  "task_type": "expel",
   "task_name": "tracking-expel-sequence-test",
   "task_source": "planning_service",
   "priority": 1,
-  "mode": "expel",
   "target_info": {
     "target_id": "target-expel-001",
     "target_batch_no": 401,

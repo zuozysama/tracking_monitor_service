@@ -14,11 +14,10 @@ if ($health.code -ne 200) {
   throw "health check failed: $($health | ConvertTo-Json -Depth 6)"
 }
 
-Write-Host "[2/4] create tracking task..."
+Write-Host "[2/4] create escort task..."
 $createBody = @{
   task_id = $TaskId
-  task_type = "tracking"
-  mode = "escort"
+  task_type = "escort"
   task_area = @{
     area_type = "polygon"
     points = @(

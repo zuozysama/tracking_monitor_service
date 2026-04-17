@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from domain.enums import FinishReason, TaskStatus, TaskType, TrackingMode
+from domain.enums import FinishReason, TaskStatus, TaskType
 
 
 class CompatModel(BaseModel):
@@ -40,7 +40,16 @@ class TaskArea(CompatModel):
                 raise ValueError("radius_m is required when area_type=circle")
             return self
 
-        raise ValueError("area_type must be one of polygon, route, circle")
+        if self.area_type == "point":
+            if self.points is None or len(self.points) != 1:
+                raise ValueError("points must contain exactly 1 point when area_type=point")
+            if self.center is not None:
+                raise ValueError("center is not allowed when area_type=point")
+            if self.radius_m is not None:
+                raise ValueError("radius_m is not allowed when area_type=point")
+            return self
+
+        raise ValueError("area_type must be one of polygon, route, circle, point")
 
 
 class TargetInfo(CompatModel):
@@ -107,11 +116,9 @@ class CreateTaskRequest(CompatModel):
     priority: int = 1
     remark: Optional[str] = None
 
-    mode: Optional[TrackingMode] = None
     target_info: Optional[TargetInfo] = None
 
     task_area: Optional[TaskArea] = None
-    anchor_point: Optional[GeoPoint] = None
 
     expected_speed: Optional[float] = Field(default=None, ge=0.0)
     update_interval_sec: Optional[int] = Field(default=1, ge=1)
@@ -124,17 +131,26 @@ class CreateTaskRequest(CompatModel):
     def validate_task_fields(self):
         if self.task_type == TaskType.PATROL and self.task_area is None:
             raise ValueError("task_area is required when task_type=patrol")
-        if self.task_type == TaskType.TRACKING:
-            if self.mode is None:
-                raise ValueError("mode is required when task_type=tracking")
+
+        if self.task_type in {TaskType.ESCORT, TaskType.INTERCEPT, TaskType.EXPEL}:
             if self.task_area is None:
-                raise ValueError("task_area is required when task_type=tracking")
+                raise ValueError("task_area is required when task_type=escort/intercept/expel")
+
         if self.task_type == TaskType.UNDERWATER_SEARCH and self.task_area is None:
             raise ValueError("task_area is required when task_type=underwater_search")
-        if self.task_type == TaskType.FIXED_TRACKING and self.anchor_point is None:
-            raise ValueError("anchor_point is required when task_type=fixed_tracking")
+
+        if self.task_type == TaskType.FIXED_TRACKING:
+            if self.task_area is None:
+                raise ValueError("task_area is required when task_type=fixed_tracking")
+            if self.task_area.area_type != "point":
+                raise ValueError("task_area.area_type must be point when task_type=fixed_tracking")
+
         if self.task_type == TaskType.PREPLAN and self.task_area is None:
             raise ValueError("task_area is required when task_type=preplan")
+
+        if self.task_area is not None and self.task_area.area_type == "point" and self.task_type != TaskType.FIXED_TRACKING:
+            raise ValueError("area_type=point is only allowed when task_type=fixed_tracking")
+
         return self
 
 
@@ -450,8 +466,6 @@ class TaskContext(CompatModel):
     priority: int = 1
     remark: Optional[str] = None
 
-    mode: Optional[TrackingMode] = None
-
     target_info: Optional[TargetInfo] = None
     task_area: Optional[TaskArea] = None
     anchor_point: Optional[GeoPoint] = None
@@ -537,7 +551,6 @@ class TaskStatusResponse(CompatModel):
     task_id: str
     task_type: TaskType
     task_name: Optional[str] = None
-    mode: Optional[TrackingMode] = None
     task_status: str
     start_time: Optional[datetime] = None
     update_time: datetime
@@ -550,7 +563,6 @@ class TaskResultResponse(CompatModel):
     task_id: str
     task_type: TaskType
     task_name: Optional[str] = None
-    mode: Optional[TrackingMode] = None
     task_status: str
     current_target_id: Optional[str] = None
     current_target_info: Optional[TargetState] = None

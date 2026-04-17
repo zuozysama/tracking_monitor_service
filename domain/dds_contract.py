@@ -74,10 +74,12 @@ TARGET_PERCEPTION_TOPIC = _resolve_topic("DDS_TOPIC_TARGET_PERCEPTION", "target_
 
 TASK_TYPE_CODE_MAP = {
     TaskType.PATROL: 1,
-    TaskType.TRACKING: 2,
-    TaskType.FIXED_TRACKING: 3,
-    TaskType.UNDERWATER_SEARCH: 4,
-    TaskType.PREPLAN: 5,
+    TaskType.ESCORT: 2,
+    TaskType.INTERCEPT: 3,
+    TaskType.EXPEL: 4,
+    TaskType.FIXED_TRACKING: 5,
+    TaskType.UNDERWATER_SEARCH: 6,
+    TaskType.PREPLAN: 7,
 }
 
 TASK_STATUS_CODE_MAP = {

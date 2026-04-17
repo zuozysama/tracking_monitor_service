@@ -3,7 +3,7 @@
 @taskId = task-tracking-intercept-sequence-001
 
 ### Tracking intercept sequence test
-### Goal: mode=intercept with staged verification
+### Goal: task_type=intercept with staged verification
 ### Stage-1: move to escort-style start point (rear / left_rear / right_rear)
 ### Stage-2: after Stage-1 arrival, move to target side point (left or right; same side as Stage-1)
 ### Stage-3: after Stage-2 arrival, move to target front-side point (left_front or right_front; same side as Stage-2)
@@ -54,17 +54,16 @@ Content-Type: {{json}}
   ]
 }
 
-### 4. Create tracking task in intercept mode
+### 4. Create intercept task
 POST {{baseUrl}}/api/v1/tasks
 Content-Type: {{json}}
 
 {
   "task_id": "{{taskId}}",
-  "task_type": "tracking",
+  "task_type": "intercept",
   "task_name": "tracking-intercept-sequence-test",
   "task_source": "planning_service",
   "priority": 1,
-  "mode": "intercept",
   "target_info": {
     "target_id": "target-intercept-001",
     "target_batch_no": 301,

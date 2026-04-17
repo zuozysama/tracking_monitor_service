@@ -59,6 +59,10 @@ def _heading_diff_deg(a: float, b: float) -> float:
     return abs((a - b + 180.0) % 360.0 - 180.0)
 
 class CollaborationService:
+    @staticmethod
+    def _is_tracking_task_type(task_type: TaskType) -> bool:
+        return task_type in {TaskType.ESCORT, TaskType.INTERCEPT, TaskType.EXPEL}
+
     def _publish_dds(self, topic: str, payload: dict) -> None:
         dds_adapter.publish(topic=topic, payload=payload)
 
@@ -114,7 +118,7 @@ class CollaborationService:
     def _try_auto_request_manual_selection(self, task: TaskContext) -> None:
         if task.manual_selection_request_sent:
             return
-        if task.task_type != TaskType.TRACKING:
+        if not self._is_tracking_task_type(task.task_type):
             return
         if task.target_constraint is not None and task.target_constraint.target_id:
             return
@@ -208,7 +212,7 @@ class CollaborationService:
     def _try_auto_request_manual_switch(self, task: TaskContext) -> None:
         if task.manual_switch_request_sent:
             return
-        if task.task_type != TaskType.TRACKING:
+        if not self._is_tracking_task_type(task.task_type):
             return
         if not task.current_target_id:
             return
@@ -424,7 +428,7 @@ class CollaborationService:
                 PREPLAN_RESULT_TOPIC,
                 {
                     "task_id": task.task_id,
-                    "task_type": TASK_TYPE_CODE_MAP.get(TaskType.PREPLAN, 5),
+                    "task_type": TASK_TYPE_CODE_MAP.get(TaskType.PREPLAN, 7),
                     "waypoint_count": len(task.preplan_output.planned_route) if task.preplan_output else 0,
                     "planned_route": payload.get("planned_route", []),
                 },
@@ -446,9 +450,10 @@ class CollaborationService:
             )
 
         elif task.tracking_plan_output is not None:
+            task_type_value = task.task_type.value if hasattr(task.task_type, "value") else str(task.task_type)
             payload_obj = AutonomyTrackingDispatch(
                 task_id=task.task_id,
-                task_type="tracking",
+                task_type=task_type_value,
                 plan_type="tracking",
                 target_id=task.tracking_plan_output.target_id,
                 target_batch_no=task.tracking_plan_output.target_batch_no,

@@ -66,11 +66,10 @@ Content-Type: {{json}}
 
 {
   "task_id": "{{taskId}}",
-  "task_type": "tracking",
+  "task_type": "escort",
   "task_name": "tracking-switch-staged-test",
   "task_source": "planning_service",
   "priority": 1,
-  "mode": "escort",
   "target_info": {
     "target_id": "target-origin-001",
     "target_batch_no": 2101,

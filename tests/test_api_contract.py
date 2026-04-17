@@ -30,9 +30,8 @@ class ApiContractTestCase(unittest.TestCase):
             "/api/v1/tasks",
             json={
                 "task_id": task_id,
-                "task_type": "tracking",
+                "task_type": "escort",
                 "task_name": "contract-test",
-                "mode": "escort",
                 "task_area": {
                     "area_type": "polygon",
                     "points": [
@@ -109,8 +108,7 @@ class ApiContractTestCase(unittest.TestCase):
             "/api/v1/tasks",
             json={
                 "task_id": task_id,
-                "task_type": "tracking",
-                "mode": "escort",
+                "task_type": "escort",
                 "task_area": {
                     "area_type": "polygon",
                     "points": [
@@ -135,15 +133,14 @@ class ApiContractTestCase(unittest.TestCase):
         self.assertEqual(feedback_resp.json()["code"], 200)
         self.assertTrue(feedback_resp.json()["data"]["feedback_received"])
 
-    def test_create_tracking_task_with_circle_area(self):
+    def test_create_escort_task_with_circle_area(self):
         task_id = "task-circle-001"
         create_resp = self.client.post(
             "/api/v1/tasks",
             json={
                 "task_id": task_id,
-                "task_type": "tracking",
+                "task_type": "escort",
                 "task_name": "circle-contract-test",
-                "mode": "escort",
                 "task_area": {
                     "area_type": "circle",
                     "center": {"longitude": 121.50, "latitude": 31.22},
@@ -156,16 +153,104 @@ class ApiContractTestCase(unittest.TestCase):
         self.assertEqual(create_resp.json()["code"], 200)
         self.assertEqual(create_resp.json()["data"]["task_id"], task_id)
 
-    def test_create_tracking_task_with_circle_missing_center_should_fail(self):
+    def test_create_escort_task_with_circle_missing_center_should_fail(self):
         resp = self.client.post(
             "/api/v1/tasks",
             json={
                 "task_id": "task-circle-invalid-001",
-                "task_type": "tracking",
-                "mode": "escort",
+                "task_type": "escort",
                 "task_area": {
                     "area_type": "circle",
                     "radius_m": 1200,
+                },
+            },
+        )
+        self.assertEqual(resp.status_code, 422)
+
+    def test_create_fixed_tracking_task_with_point_area(self):
+        task_id = "task-fixed-point-001"
+        resp = self.client.post(
+            "/api/v1/tasks",
+            json={
+                "task_id": task_id,
+                "task_type": "fixed_tracking",
+                "task_area": {
+                    "area_type": "point",
+                    "points": [
+                        {"longitude": 121.50, "latitude": 31.22},
+                    ],
+                },
+                "end_condition": {"duration_sec": 300},
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["code"], 200)
+        self.assertEqual(resp.json()["data"]["task_id"], task_id)
+
+    def test_create_fixed_tracking_task_with_non_point_area_should_fail(self):
+        resp = self.client.post(
+            "/api/v1/tasks",
+            json={
+                "task_id": "task-fixed-invalid-area-001",
+                "task_type": "fixed_tracking",
+                "task_area": {
+                    "area_type": "polygon",
+                    "points": [
+                        {"longitude": 121.49, "latitude": 31.21},
+                        {"longitude": 121.52, "latitude": 31.21},
+                        {"longitude": 121.52, "latitude": 31.23},
+                    ],
+                },
+            },
+        )
+        self.assertEqual(resp.status_code, 422)
+
+    def test_create_non_fixed_task_with_point_area_should_fail(self):
+        resp = self.client.post(
+            "/api/v1/tasks",
+            json={
+                "task_id": "task-escort-point-invalid-001",
+                "task_type": "escort",
+                "task_area": {
+                    "area_type": "point",
+                    "points": [
+                        {"longitude": 121.50, "latitude": 31.22},
+                    ],
+                },
+            },
+        )
+        self.assertEqual(resp.status_code, 422)
+
+    def test_create_fixed_tracking_task_with_multiple_point_items_should_fail(self):
+        resp = self.client.post(
+            "/api/v1/tasks",
+            json={
+                "task_id": "task-fixed-multi-point-invalid-001",
+                "task_type": "fixed_tracking",
+                "task_area": {
+                    "area_type": "point",
+                    "points": [
+                        {"longitude": 121.50, "latitude": 31.22},
+                        {"longitude": 121.51, "latitude": 31.23},
+                    ],
+                },
+            },
+        )
+        self.assertEqual(resp.status_code, 422)
+
+    def test_create_fixed_tracking_task_with_point_center_or_radius_should_fail(self):
+        resp = self.client.post(
+            "/api/v1/tasks",
+            json={
+                "task_id": "task-fixed-point-extra-invalid-001",
+                "task_type": "fixed_tracking",
+                "task_area": {
+                    "area_type": "point",
+                    "points": [
+                        {"longitude": 121.50, "latitude": 31.22},
+                    ],
+                    "center": {"longitude": 121.51, "latitude": 31.23},
+                    "radius_m": 300,
                 },
             },
         )

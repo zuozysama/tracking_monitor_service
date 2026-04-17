@@ -33,6 +33,10 @@ from utils.time_utils import utc_now
 
 class TaskService:
     @staticmethod
+    def _is_tracking_task_type(task_type: TaskType) -> bool:
+        return task_type in {TaskType.ESCORT, TaskType.INTERCEPT, TaskType.EXPEL}
+
+    @staticmethod
     def _normalize_contract_task_status(status: TaskStatus) -> str:
         if status == TaskStatus.WAITING_TARGET:
             return "running"
@@ -47,6 +51,12 @@ class TaskService:
         now = utc_now()
         end_condition = req.end_condition or EndCondition()
         internal_target_constraint = self._build_internal_target_constraint(req)
+        anchor_point = None
+        if req.task_type == TaskType.FIXED_TRACKING and req.task_area and req.task_area.points:
+            anchor_point = req.task_area.points[0]
+        polygon_region = None
+        if req.task_area is not None and req.task_area.area_type in {"polygon", "circle"}:
+            polygon_region = req.task_area
 
         task = TaskContext(
             task_id=req.task_id,
@@ -55,12 +65,11 @@ class TaskService:
             task_source=req.task_source,
             priority=req.priority,
             remark=req.remark,
-            mode=req.mode,
             target_info=req.target_info,
             task_area=req.task_area,
-            anchor_point=req.anchor_point,
+            anchor_point=anchor_point,
             target_constraint=internal_target_constraint,
-            polygon_region=req.task_area,
+            polygon_region=polygon_region,
             default_region_radius_m=get_fixed_tracking_default_radius_m(),
             expected_speed=req.expected_speed,
             update_interval_sec=req.update_interval_sec or 1,
@@ -250,7 +259,6 @@ class TaskService:
             task_id=task.task_id,
             task_type=task.task_type,
             task_name=task.task_name,
-            mode=task.mode,
             task_status=self._normalize_contract_task_status(task.status),
             start_time=task.start_time,
             update_time=task.update_time,
@@ -320,7 +328,6 @@ class TaskService:
             task_id=task.task_id,
             task_type=task.task_type,
             task_name=task.task_name,
-            mode=task.mode,
             task_status=self._normalize_contract_task_status(task.status),
             current_target_id=task.current_target_id,
             current_target_info=current_target_info,
@@ -397,7 +404,7 @@ class TaskService:
         if self._check_duration(task):
             return
 
-        if task.task_type == TaskType.TRACKING:
+        if self._is_tracking_task_type(task.task_type):
             if self._check_tracking_out_of_region(task):
                 return
 
@@ -464,7 +471,7 @@ class TaskService:
             collaboration_service.handle_patrol_collaboration(task)
             return
 
-        if task.task_type == TaskType.TRACKING:
+        if self._is_tracking_task_type(task.task_type):
             tracking_service.refresh_result(task)
             return
 

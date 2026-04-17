@@ -56,11 +56,10 @@ class TopicCodecDecodeTestCase(unittest.TestCase):
         self.assertAlmostEqual(lon_raw * GEO_LSB_DEG, 121.5123456, places=5)
         self.assertAlmostEqual(lat_raw * GEO_LSB_DEG, 31.2234567, places=5)
 
-    def test_decode_ownship_shifted_doc35_layout(self):
+    def test_decode_ownship_doc35_layout(self):
         lon_raw = int(round(121.5123456 * (2 ** 31) / 180.0))
         lat_raw = int(round(31.2234567 * (2 ** 31) / 180.0))
 
-        v3_head = b"\x00" * 16
         doc35 = bytearray(35)
         doc35[0:21] = bytes(range(1, 22))          # inner 21-byte protocol head
         struct.pack_into("<H", doc35, 21, 2001)    # uid
@@ -69,20 +68,41 @@ class TopicCodecDecodeTestCase(unittest.TestCase):
         struct.pack_into("<i", doc35, 27, lon_raw)
         struct.pack_into("<i", doc35, 31, lat_raw)
 
-        decoded = decode_topic_payload(OWNSHIP_NAVIGATION_TOPIC, v3_head + bytes(doc35))
+        decoded = decode_topic_payload(OWNSHIP_NAVIGATION_TOPIC, bytes(doc35))
         self.assertEqual(decoded["platform_id"], 2001)
         self.assertAlmostEqual(decoded["speed_mps"], 12.34, places=2)
         self.assertAlmostEqual(decoded["heading_deg"], 271.0, places=2)
         self.assertAlmostEqual(decoded["longitude"], lon_raw * GEO_LSB_DEG, places=7)
         self.assertAlmostEqual(decoded["latitude"], lat_raw * GEO_LSB_DEG, places=7)
-        self.assertEqual(decoded.get("decode_format"), "v3_16_plus_35_shifted_fields")
-        self.assertEqual(decoded["offsets"]["uid"], [37, 38])
+        self.assertEqual(decoded.get("decode_format"), "doc35_21_plus_14_fields")
+        self.assertEqual(decoded["offsets"]["uid"], [21, 22])
+        self.assertEqual(decoded.get("input_layout"), "doc35")
+        self.assertEqual(decoded.get("raw_len"), 35)
+        self.assertEqual(len(bytes.fromhex(decoded.get("raw_hex", ""))), 35)
         self.assertTrue(str(decoded["timestamp"]).endswith("Z"))
 
-    def test_decode_ownship_shifted_doc35_too_short(self):
+    def test_decode_ownship_doc35_with_outer_v3_header_compatible(self):
+        lon_raw = int(round(121.5123456 * (2 ** 31) / 180.0))
+        lat_raw = int(round(31.2234567 * (2 ** 31) / 180.0))
+
+        v3_head = b"\x00" * 16
+        doc35 = bytearray(35)
+        doc35[0:21] = bytes(range(1, 22))
+        struct.pack_into("<H", doc35, 21, 2001)
+        struct.pack_into("<H", doc35, 23, 1234)
+        struct.pack_into("<H", doc35, 25, 271)
+        struct.pack_into("<i", doc35, 27, lon_raw)
+        struct.pack_into("<i", doc35, 31, lat_raw)
+
+        decoded = decode_topic_payload(OWNSHIP_NAVIGATION_TOPIC, v3_head + bytes(doc35))
+        self.assertEqual(decoded["platform_id"], 2001)
+        self.assertEqual(decoded.get("input_layout"), "v3_16_plus_35")
+        self.assertEqual(len(bytes.fromhex(decoded.get("raw_hex", ""))), 35)
+
+    def test_decode_ownship_doc35_too_short(self):
         decoded = decode_topic_payload(OWNSHIP_NAVIGATION_TOPIC, b"\x00" * 34)
         self.assertIn("decode_error", decoded)
-        self.assertIn("16+35 layout", decoded["decode_error"])
+        self.assertIn("need at least 35", decoded["decode_error"])
 
     def test_decode_target_perception_doc_format(self):
         name = "TARGET-A".encode("gb2312")

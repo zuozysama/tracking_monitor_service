@@ -19,6 +19,13 @@ def get_autonomy_tracking_logs():
     tracking_patrol_logs = [
         item
         for item in collaboration_store.get_autonomy_patrol_logs()
-        if str(item.get("task_type")) in {"tracking", "TaskType.TRACKING"}
+        if str(item.get("task_type")) in {
+            "escort",
+            "intercept",
+            "expel",
+            "TaskType.ESCORT",
+            "TaskType.INTERCEPT",
+            "TaskType.EXPEL",
+        }
     ]
     return ok({"items": tracking_logs + tracking_patrol_logs})

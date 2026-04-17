@@ -1,4 +1,6 @@
-from domain.enums import TaskStatus, TrackingMode
+from typing import Optional
+
+from domain.enums import FinishReason, TaskStatus, TaskType, TrackingMode
 from domain.models import GeoPoint, RecommendedPoint, TaskContext, TrackingPlanOutput
 from services.collaboration_service import collaboration_service
 from services.patrol_service import patrol_service
@@ -23,6 +25,15 @@ from algorithms.track_point_generator import (
 
 
 class TrackingService:
+    def _resolve_tracking_mode(self, task: TaskContext) -> Optional[TrackingMode]:
+        if task.task_type == TaskType.ESCORT:
+            return TrackingMode.ESCORT
+        if task.task_type == TaskType.INTERCEPT:
+            return TrackingMode.INTERCEPT
+        if task.task_type == TaskType.EXPEL:
+            return TrackingMode.EXPEL
+        return None
+
     def _reset_intercept_state(self, task: TaskContext) -> None:
         task.intercept_stage = 0
         task.intercept_side = None
@@ -41,8 +52,8 @@ class TrackingService:
             return "left"
         return "right"
 
-    def _refresh_intercept_stage(self, task: TaskContext, ownship, target) -> None:
-        if task.mode != TrackingMode.INTERCEPT:
+    def _refresh_intercept_stage(self, task: TaskContext, ownship, target, mode: TrackingMode) -> None:
+        if mode != TrackingMode.INTERCEPT:
             return
 
         if task.recommended_point is None:
@@ -81,8 +92,8 @@ class TrackingService:
             task.intercept_arrival_stable_cycles = 0
             return
 
-    def _refresh_expel_stage(self, task: TaskContext, ownship, target) -> None:
-        if task.mode != TrackingMode.EXPEL:
+    def _refresh_expel_stage(self, task: TaskContext, ownship, target, mode: TrackingMode) -> None:
+        if mode != TrackingMode.EXPEL:
             return
 
         if task.recommended_point is None:
@@ -118,6 +129,14 @@ class TrackingService:
 
     def refresh_result(self, task: TaskContext) -> None:
         if task.status not in {"running", "waiting_target"} and task.status not in {TaskStatus.RUNNING, TaskStatus.WAITING_TARGET}:
+            return
+        mode = self._resolve_tracking_mode(task)
+        if mode is None:
+            task.status = TaskStatus.ABNORMAL
+            task.finish_reason = FinishReason.INVALID_TASK
+            task.execution_phase = "completed"
+            task.update_time = utc_now()
+            task_store.update_task(task)
             return
 
         patrol_service.refresh_result(task)
@@ -182,12 +201,12 @@ class TrackingService:
             return
 
         previous_target_id = task.current_target_id
-        if task.mode == TrackingMode.INTERCEPT and previous_target_id not in {None, target.target_id}:
+        if mode == TrackingMode.INTERCEPT and previous_target_id not in {None, target.target_id}:
             self._reset_intercept_state(task)
-        if task.mode == TrackingMode.EXPEL and previous_target_id not in {None, target.target_id}:
+        if mode == TrackingMode.EXPEL and previous_target_id not in {None, target.target_id}:
             self._reset_expel_state(task)
-        self._refresh_intercept_stage(task, ownship, target)
-        self._refresh_expel_stage(task, ownship, target)
+        self._refresh_intercept_stage(task, ownship, target, mode)
+        self._refresh_expel_stage(task, ownship, target, mode)
 
         task.status = TaskStatus.RUNNING
         task.search_hit = True
@@ -197,7 +216,7 @@ class TrackingService:
         task.last_seen_target_time = utc_now()
 
         point, rel_bearing_deg = generate_simple_tracking_point(
-            mode=task.mode,
+            mode=mode,
             target=target,
             ownship=ownship,
             escort_distance_m=get_tracking_escort_distance_m(),
@@ -209,11 +228,11 @@ class TrackingService:
             expel_side=task.expel_side,
         )
 
-        if task.mode == TrackingMode.ESCORT:
+        if mode == TrackingMode.ESCORT:
             rel_range_m = get_tracking_escort_distance_m()
-        elif task.mode == TrackingMode.INTERCEPT:
+        elif mode == TrackingMode.INTERCEPT:
             rel_range_m = get_tracking_intercept_distance_m()
-        elif task.mode == TrackingMode.EXPEL:
+        elif mode == TrackingMode.EXPEL:
             rel_range_m = get_tracking_escort_distance_m() if task.expel_stage <= 0 else get_tracking_expel_distance_m()
         else:
             rel_range_m = 0.0

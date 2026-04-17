@@ -59,13 +59,13 @@ def _decode_gb2312_cstr(raw: bytes) -> str:
 def _parse_common_header(body: bytes) -> tuple[int, str | None]:
     # Common header from protocol doc:
     # protocol_type(4) + version(1) + length(2) + msg_type(1) + seq(4) + reserve(1) + ts(8)
-    header_fmt = "<IBHBI BII"
+    header_fmt = "<IBHBIBQ"
     header_size = struct.calcsize(header_fmt)
     if len(body) < header_size:
         return 0, None
 
     try:
-        protocol_type, _ver, length, _msg_type, _seq, _reserve, ts_sec, ts_sub_ms_x1e6 = struct.unpack(
+        protocol_type, _ver, length, _msg_type, _seq, _reserve, ts_0p1ms = struct.unpack(
             header_fmt, body[:header_size]
         )
     except Exception:
@@ -77,7 +77,8 @@ def _parse_common_header(body: bytes) -> tuple[int, str | None]:
         return 0, None
 
     try:
-        ts_value = float(ts_sec) + float(ts_sub_ms_x1e6) / 1e9
+        day_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        ts_value = day_start.timestamp() + float(ts_0p1ms) * 0.0001
         ts_iso = datetime.fromtimestamp(ts_value, tz=timezone.utc).isoformat().replace("+00:00", "Z")
     except Exception:
         ts_iso = None
@@ -115,15 +116,11 @@ def _nav_timestamp_0p1ms_from_day_start(payload: dict[str, Any]) -> int:
     now = datetime.now(timezone.utc)
     day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     delta = now - day_start
-    # Lowest significant bit is 0.1ms.
     ticks = int(round(delta.total_seconds() * 10000.0))
     return max(0, ticks)
 
 
 def encode_topic_payload(topic: str, payload: dict) -> bytes:
-    # 这里只保留你原本其他 topic 的编码逻辑。
-    # 导航 topic 的 encode 当前仍是你原来的工程内紧凑格式；
-    # 本次修正重点是“严格按 dds_listen_nav_test2.py 解码导航消息”。
     if topic == OWNSHIP_NAVIGATION_TOPIC:
         # 35-byte business packet:
         # 21-byte protocol header + 14-byte nav fields.
@@ -158,29 +155,115 @@ def encode_topic_payload(topic: str, payload: dict) -> bytes:
         )
 
     if topic == TARGET_PERCEPTION_TOPIC:
-        source_platform_id = _u16(payload.get("source_platform_id", 0))
+        # 21-byte common header + 2-byte target_count + 2-byte source_platform_id + N * 88-byte entries
         targets = payload.get("targets") or []
-        head = struct.pack("<HH4s", _u16(len(targets)), source_platform_id, b"\x00" * 4)
+        source_platform_id = _u16(payload.get("source_platform_id", 0))
+
+        protocol_type = _u32(payload.get("protocol_type", 0))
+        version = _u16(payload.get("protocol_version", payload.get("version", 1))) & 0xFF
+        msg_type = _u16(payload.get("msg_type", 1)) & 0xFF
+        seq = _u32(payload.get("msg_seq", payload.get("seq", 1)))
+        reserve = _u16(payload.get("reserve", 0)) & 0xFF
+        ts_0p1ms = _nav_timestamp_0p1ms_from_day_start(payload)
+
+        entry_fmt = "<HHIHHHHHiiHBBIBBB40sHHHBHH"
+        entry_size = struct.calcsize(entry_fmt)  # 88
+        packet_len = 21 + 2 + 2 + len(targets) * entry_size
+
+        header = struct.pack(
+            "<IBHBIBQ",
+            protocol_type,
+            version,
+            packet_len,
+            msg_type,
+            seq,
+            reserve,
+            ts_0p1ms,
+        )
+
+        prefix = struct.pack("<HH", _u16(len(targets)), source_platform_id)
+
         body = bytearray()
         for item in targets:
-            target_id = _fit_ascii(str(item.get("target_id") or ""), 64)
-            entry = struct.pack(
-                "<IHIHHiiHBB64s6s",
-                _u32(item.get("target_batch_no", 0)),
-                _u16(round(float(item.get("target_bearing_deg", 0.0)) * 10)),
-                _u32(item.get("target_distance_m", 0)),
-                _u16(round(float(item.get("target_absolute_speed_mps", 0.0)) * 10)),
-                _u16(round(float(item.get("target_absolute_heading_deg", 0.0)) * 10)),
-                _i32(round(float(item.get("target_longitude", 0.0)) * 1e7)),
-                _i32(round(float(item.get("target_latitude", 0.0)) * 1e7)),
-                _u16(item.get("target_type_code", 0)),
-                _u16(item.get("military_civil_attr", 0)) & 0xFF,
-                _u16(item.get("threat_level", 0)) & 0xFF,
-                target_id,
-                b"\x00" * 6,
+            batch_no = _u16(item.get("target_batch_no", 0))
+            bearing_x10 = _u16(round(float(item.get("target_bearing_deg", 0.0)) * 10.0))
+            distance_m = _u32(round(float(item.get("target_distance_m", 0.0))))
+            height_x10 = _u16(round(float(item.get("target_height_m", 0.0)) * 10.0))
+            abs_speed_x10 = _u16(round(float(item.get("target_absolute_speed_mps", 0.0)) * 10.0))
+            abs_heading_x10 = _u16(round(float(item.get("target_absolute_heading_deg", 0.0)) * 10.0))
+            rel_speed_x10 = _u16(round(float(item.get("target_relative_speed_mps", 0.0)) * 10.0))
+            rel_heading_x10 = _u16(round(float(item.get("target_relative_heading_deg", 0.0)) * 10.0))
+
+            lon_raw = _i32(round(float(item.get("target_longitude", 0.0)) / NAV_GEO_LSB_DEG))
+            lat_raw = _i32(round(float(item.get("target_latitude", 0.0)) / NAV_GEO_LSB_DEG))
+
+            qt_value = item.get("target_qt_value_m", 0xFFFF)
+            if qt_value is None:
+                qt_value = 0xFFFF
+            qt_value = _u16(qt_value)
+
+            coord_sys = _u16(item.get("coord_sys", 0)) & 0xFF
+            is_simulated = _u16(item.get("is_simulated", 255)) & 0xFF
+
+            target_ts_raw = _u32(item.get("target_generated_timestamp_raw", 0))
+
+            position_attr = _u16(item.get("target_position_attr", 0)) & 0xFF
+            target_type_code = _u16(item.get("target_type_code", 0)) & 0xFF
+            military_civil_attr = _u16(item.get("military_civil_attr", 0)) & 0xFF
+
+            target_name = str(item.get("target_name") or "")
+            try:
+                target_name_raw = target_name.encode("gb2312", errors="ignore")
+            except Exception:
+                target_name_raw = target_name.encode("utf-8", errors="ignore")
+            target_name_raw = target_name_raw[:40].ljust(40, b"\x00")
+
+            target_len_x10 = _u16(round(float(item.get("target_length_m", 0.0)) * 10.0))
+            target_width_x10 = _u16(round(float(item.get("target_width_m", 0.0)) * 10.0))
+            target_height_x10 = _u16(round(float(item.get("target_height_size_m", 0.0)) * 10.0))
+
+            threat_level = item.get("threat_level", 0xFF)
+            if threat_level is None:
+                threat_level = 0xFF
+            threat_level = _u16(threat_level) & 0xFF
+
+            rcs_m2 = item.get("rcs_m2", None)
+            rcs_x10 = 0xFFFF if rcs_m2 is None else _u16(round(float(rcs_m2) * 10.0))
+
+            custom2 = item.get("custom2", None)
+            custom2 = 0xFFFF if custom2 is None else _u16(custom2)
+
+            body.extend(
+                struct.pack(
+                    entry_fmt,
+                    batch_no,
+                    bearing_x10,
+                    distance_m,
+                    height_x10,
+                    abs_speed_x10,
+                    abs_heading_x10,
+                    rel_speed_x10,
+                    rel_heading_x10,
+                    lon_raw,
+                    lat_raw,
+                    qt_value,
+                    coord_sys,
+                    is_simulated,
+                    target_ts_raw,
+                    position_attr,
+                    target_type_code,
+                    military_civil_attr,
+                    target_name_raw,
+                    target_len_x10,
+                    target_width_x10,
+                    target_height_x10,
+                    threat_level,
+                    rcs_x10,
+                    custom2,
+                )
             )
-            body.extend(entry)
-        return head + bytes(body)
+
+        return header + prefix + bytes(body)
 
     if topic == TASK_UPDATE_TOPIC:
         return struct.pack(
@@ -205,7 +288,7 @@ def encode_topic_payload(topic: str, payload: dict) -> bytes:
         header = struct.pack(
             "<64sBH",
             _fit_ascii(str(payload.get("task_id") or ""), 64),
-            _u16(payload.get("task_type", 5)) & 0xFF,
+            _u16(payload.get("task_type", 7)) & 0xFF,
             _u16(payload.get("waypoint_count", len(route))),
         )
         body = bytearray()
@@ -292,24 +375,27 @@ def encode_topic_payload(topic: str, payload: dict) -> bytes:
 
 def decode_topic_payload(topic: str, body: bytes) -> dict:
     if topic == OWNSHIP_NAVIGATION_TOPIC:
-        # 严格对齐 dds_listen_nav_test2.py：
-        # 输入必须是完整 raw MSG = 16-byte V3 head + DOC35(35 bytes) + optional tail
         raw_msg = body
-
-        if len(raw_msg) < NAV_TOTAL_LEN:
+        if len(raw_msg) >= NAV_TOTAL_LEN:
+            # Compatible with historical input that still includes 16-byte V3 outer header.
+            doc35 = raw_msg[NAV_OUTER_V3_HEAD_LEN:NAV_TOTAL_LEN]
+            input_layout = "v3_16_plus_35"
+        elif len(raw_msg) >= NAV_DOC35_LEN:
+            doc35 = raw_msg[:NAV_DOC35_LEN]
+            input_layout = "doc35"
+        else:
             return {
                 "raw_hex": raw_msg.hex(),
                 "decode_error": (
-                    f"raw MSG too short for 16+35 layout: got {len(raw_msg)} bytes, "
-                    f"need at least {NAV_TOTAL_LEN}"
+                    f"raw NAV msg too short: got {len(raw_msg)} bytes, "
+                    f"need at least {NAV_DOC35_LEN}"
                 ),
             }
 
-        doc35 = raw_msg[NAV_OUTER_V3_HEAD_LEN:NAV_TOTAL_LEN]
-        nav14 = raw_msg[NAV_OUTER_V3_HEAD_LEN + NAV_INNER_PROTO_HEAD_LEN:NAV_TOTAL_LEN]
+        nav14 = doc35[NAV_INNER_PROTO_HEAD_LEN:NAV_DOC35_LEN]
         if len(nav14) < NAV_FIELDS_LEN:
             return {
-                "raw_hex": raw_msg.hex(),
+                "raw_hex": doc35.hex(),
                 "decode_error": f"NAV14 too short: got {len(nav14)} bytes, need {NAV_FIELDS_LEN}",
             }
 
@@ -325,18 +411,20 @@ def decode_topic_payload(topic: str, body: bytes) -> dict:
         latitude = float(lat_raw) * NAV_GEO_LSB_DEG
 
         return {
-            "format": "v3_16_plus_35_shifted_fields",
+            "format": "doc35_21_plus_14_fields",
             "offsets": {
-                "uid": [37, 38],
-                "speed_raw": [39, 40],
-                "heading_raw": [41, 42],
-                "lon_raw": [43, 46],
-                "lat_raw": [47, 50],
+                "uid": [21, 22],
+                "speed_raw": [23, 24],
+                "heading_raw": [25, 26],
+                "lon_raw": [27, 30],
+                "lat_raw": [31, 34],
             },
+            "input_layout": input_layout,
             "platform_id": uid,
             "uid": uid,
-            "raw_len": len(raw_msg),
-            "expected_raw_len": NAV_TOTAL_LEN,
+            "raw_len": len(doc35),
+            "expected_raw_len": NAV_DOC35_LEN,
+            "input_raw_len": len(raw_msg),
             "speed_raw": speed_raw,
             "heading_raw": heading_raw,
             "lon_raw": lon_raw,
@@ -345,174 +433,113 @@ def decode_topic_payload(topic: str, body: bytes) -> dict:
             "heading_deg": heading_deg,
             "longitude": longitude,
             "latitude": latitude,
-            "inner_proto21_hex": raw_msg[NAV_OUTER_V3_HEAD_LEN : NAV_OUTER_V3_HEAD_LEN + NAV_INNER_PROTO_HEAD_LEN].hex(" "),
+            "inner_proto21_hex": doc35[:NAV_INNER_PROTO_HEAD_LEN].hex(" "),
             "nav14_hex": nav14.hex(" "),
-            "doc35_prefix_5bytes_hex": doc35[0:5].hex(" "),
             "doc35_hex": doc35.hex(" "),
-            "raw_hex": raw_msg.hex(),
+            "raw_hex": doc35.hex(),
             "timestamp": _iso_utc_now(),
-            "decode_format": "v3_16_plus_35_shifted_fields",
+            "decode_format": "doc35_21_plus_14_fields",
         }
 
     if topic == TARGET_PERCEPTION_TOPIC:
         common_offset, common_ts = _parse_common_header(body)
         payload = body[common_offset:] if common_offset else body
 
-        if len(payload) >= 4:
-            target_count, source_platform_id = struct.unpack("<HH", payload[:4])
-            targets = []
-            offset = 4
-            doc_entry_formats = [
-                ("<HHIHHHHHiiHBBIbHb40sHHHbHH", "u16"),
-                ("<HHIHHHHHiiHBBIbbb40sHHHbHH", "i8"),
-            ]
-            for doc_entry_fmt, target_type_mode in doc_entry_formats:
-                doc_entry_size = struct.calcsize(doc_entry_fmt)
-                if len(payload) < offset + doc_entry_size:
-                    continue
-                if len(payload) < offset + doc_entry_size * max(1, target_count):
-                    continue
-
-                targets = []
-                offset_local = offset
-                for _i in range(target_count):
-                    if len(payload) < offset_local + doc_entry_size:
-                        break
-                    unpacked = struct.unpack(doc_entry_fmt, payload[offset_local : offset_local + doc_entry_size])
-                    if target_type_mode == "i8":
-                        (
-                            batch_no,
-                            bearing_x10,
-                            distance_m,
-                            _height_x10,
-                            abs_speed_x10,
-                            abs_heading_x10,
-                            _rel_speed_x10,
-                            _rel_heading_x10,
-                            lon_e7,
-                            lat_e7,
-                            _qt_value,
-                            _coord_sys,
-                            _is_simulated,
-                            target_ts_raw,
-                            _position_attr,
-                            target_type_code,
-                            military_civil_attr,
-                            target_name_raw,
-                            _target_len_x10,
-                            _target_width_x10,
-                            _target_height_x10,
-                            threat_level,
-                            _rcs_x10,
-                            _custom2,
-                        ) = unpacked
-                    else:
-                        (
-                            batch_no,
-                            bearing_x10,
-                            distance_m,
-                            _height_x10,
-                            abs_speed_x10,
-                            abs_heading_x10,
-                            _rel_speed_x10,
-                            _rel_heading_x10,
-                            lon_e7,
-                            lat_e7,
-                            _qt_value,
-                            _coord_sys,
-                            _is_simulated,
-                            target_ts_raw,
-                            _position_attr,
-                            target_type_code,
-                            military_civil_attr,
-                            target_name_raw,
-                            _target_len_x10,
-                            _target_width_x10,
-                            _target_height_x10,
-                            threat_level,
-                            _rcs_x10,
-                            _custom2,
-                        ) = unpacked
-                    target_name = _decode_gb2312_cstr(target_name_raw)
-                    target_generated_ts = _format_target_generated_ts(common_ts, int(target_ts_raw))
-                    targets.append(
-                        {
-                            "source_platform_id": source_platform_id,
-                            "target_id": f"target-{batch_no}",
-                            "target_batch_no": int(batch_no),
-                            "target_bearing_deg": bearing_x10 / 10.0,
-                            "target_distance_m": float(distance_m),
-                            "target_absolute_speed_mps": abs_speed_x10 / 10.0,
-                            "target_absolute_heading_deg": abs_heading_x10 / 10.0,
-                            "target_longitude": lon_e7 / 1e7,
-                            "target_latitude": lat_e7 / 1e7,
-                            "target_type_code": int(target_type_code),
-                            "military_civil_attr": int(military_civil_attr),
-                            "threat_level": int(threat_level) if threat_level >= 0 else None,
-                            "target_name": target_name or None,
-                            "target_generated_timestamp_raw": int(target_ts_raw),
-                            "target_generated_timestamp": target_generated_ts,
-                            "timestamp": common_ts or _iso_utc_now(),
-                            "active": True,
-                        }
-                    )
-                    offset_local += doc_entry_size
-
-                if targets:
-                    return {
-                        "source_platform_id": source_platform_id,
-                        "target_count": len(targets),
-                        "targets": targets,
-                    }
-
-        if len(payload) >= 8:
-            target_count, source_platform_id, _ = struct.unpack("<HH4s", payload[:8])
-            targets = []
-            offset = 8
-            entry_fmt = "<IHIHHiiHBB64s6s"
-            entry_size = struct.calcsize(entry_fmt)
-            for _i in range(target_count):
-                if len(payload) < offset + entry_size:
-                    break
-                (
-                    batch_no,
-                    bearing_x10,
-                    distance_m,
-                    speed_x10,
-                    heading_x10,
-                    lon_e7,
-                    lat_e7,
-                    type_code,
-                    military,
-                    threat,
-                    target_id_raw,
-                    _r,
-                ) = struct.unpack(entry_fmt, payload[offset : offset + entry_size])
-                target_id = target_id_raw.split(b"\x00", 1)[0].decode("utf-8", errors="ignore")
-                targets.append(
-                    {
-                        "source_platform_id": source_platform_id,
-                        "target_id": target_id or f"target-{batch_no}",
-                        "target_batch_no": batch_no,
-                        "target_bearing_deg": bearing_x10 / 10.0,
-                        "target_distance_m": float(distance_m),
-                        "target_absolute_speed_mps": speed_x10 / 10.0,
-                        "target_absolute_heading_deg": heading_x10 / 10.0,
-                        "target_longitude": lon_e7 / 1e7,
-                        "target_latitude": lat_e7 / 1e7,
-                        "target_type_code": type_code,
-                        "military_civil_attr": military,
-                        "threat_level": threat,
-                        "timestamp": common_ts or _iso_utc_now(),
-                        "active": True,
-                    }
-                )
-                offset += entry_size
-
+        if len(payload) < 4:
             return {
-                "source_platform_id": source_platform_id,
-                "target_count": len(targets),
-                "targets": targets,
+                "raw_hex": body.hex(),
+                "decode_error": f"target payload too short: got {len(payload)} bytes, need at least 4",
             }
+
+        target_count, source_platform_id = struct.unpack("<HH", payload[:4])
+
+        entry_fmt = "<HHIHHHHHiiHBBIBBB40sHHHBHH"
+        entry_size = struct.calcsize(entry_fmt)  # 88
+
+        expected_len = 4 + target_count * entry_size
+        if len(payload) < expected_len:
+            return {
+                "raw_hex": body.hex(),
+                "decode_error": (
+                    f"target payload length mismatch: got {len(payload)} bytes, "
+                    f"need at least {expected_len} for {target_count} targets"
+                ),
+            }
+
+        targets = []
+        offset = 4
+        for _i in range(target_count):
+            chunk = payload[offset : offset + entry_size]
+            (
+                batch_no,
+                bearing_x10,
+                distance_m,
+                height_x10,
+                abs_speed_x10,
+                abs_heading_x10,
+                rel_speed_x10,
+                rel_heading_x10,
+                lon_raw,
+                lat_raw,
+                qt_value,
+                coord_sys,
+                is_simulated,
+                target_ts_raw,
+                position_attr,
+                target_type_code,
+                military_civil_attr,
+                target_name_raw,
+                target_len_x10,
+                target_width_x10,
+                target_height_x10,
+                threat_level,
+                rcs_x10,
+                custom2,
+            ) = struct.unpack(entry_fmt, chunk)
+
+            target_name = _decode_gb2312_cstr(target_name_raw)
+            target_generated_ts = _format_target_generated_ts(common_ts, int(target_ts_raw))
+
+            targets.append(
+                {
+                    "source_platform_id": int(source_platform_id),
+                    "target_id": f"target-{int(batch_no)}",
+                    "target_batch_no": int(batch_no),
+                    "target_bearing_deg": float(bearing_x10) / 10.0,
+                    "target_distance_m": float(distance_m),
+                    "target_height_m": float(height_x10) / 10.0,
+                    "target_absolute_speed_mps": float(abs_speed_x10) / 10.0,
+                    "target_absolute_heading_deg": float(abs_heading_x10) / 10.0,
+                    "target_relative_speed_mps": float(rel_speed_x10) / 10.0,
+                    "target_relative_heading_deg": float(rel_heading_x10) / 10.0,
+                    "target_longitude": float(lon_raw) * NAV_GEO_LSB_DEG,
+                    "target_latitude": float(lat_raw) * NAV_GEO_LSB_DEG,
+                    "target_qt_value_m": int(qt_value) if qt_value != 0xFFFF else None,
+                    "coord_sys": int(coord_sys),
+                    "is_simulated": int(is_simulated),
+                    "target_generated_timestamp_raw": int(target_ts_raw),
+                    "target_generated_timestamp": target_generated_ts,
+                    "target_position_attr": int(position_attr),
+                    "target_type_code": int(target_type_code),
+                    "military_civil_attr": int(military_civil_attr),
+                    "target_name": target_name or None,
+                    "target_length_m": float(target_len_x10) / 10.0,
+                    "target_width_m": float(target_width_x10) / 10.0,
+                    "target_height_size_m": float(target_height_x10) / 10.0,
+                    "threat_level": None if int(threat_level) == 0xFF else int(threat_level),
+                    "rcs_m2": float(rcs_x10) / 10.0 if int(rcs_x10) != 0xFFFF else None,
+                    "custom2": None if int(custom2) == 0xFFFF else int(custom2),
+                    "timestamp": common_ts or _iso_utc_now(),
+                    "active": True,
+                }
+            )
+            offset += entry_size
+
+        return {
+            "source_platform_id": int(source_platform_id),
+            "target_count": int(target_count),
+            "entry_size": entry_size,
+            "targets": targets,
+        }
 
     return {"raw_hex": body.hex()}

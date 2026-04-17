@@ -3,7 +3,9 @@ from enum import Enum
 
 class TaskType(str, Enum):
     PATROL = "patrol"
-    TRACKING = "tracking"
+    ESCORT = "escort"
+    INTERCEPT = "intercept"
+    EXPEL = "expel"
     UNDERWATER_SEARCH = "underwater_search"
     FIXED_TRACKING = "fixed_tracking"
     PREPLAN = "preplan"

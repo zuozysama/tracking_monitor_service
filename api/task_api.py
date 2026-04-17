@@ -38,7 +38,6 @@ def list_tasks():
         {
             "task_id": task.task_id,
             "task_type": task.task_type,
-            "mode": task.mode,
             "task_status": task.status,
             "update_time": task.update_time,
         }

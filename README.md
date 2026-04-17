@@ -8,7 +8,9 @@
 - DDS 相关暂未接入真实中间件，统一用 mock 接口代替
 - 已支持任务类型：
   - `patrol`
-  - `tracking`
+  - `escort`
+  - `intercept`
+  - `expel`
   - `fixed_tracking`
   - `underwater_search`
   - `preplan`
@@ -206,11 +208,10 @@ curl -X POST http://127.0.0.1:8080/api/v1/tasks \
   -H "Content-Type: application/json" \
   -d '{
     "task_id": "task-tracking-001",
-    "task_type": "tracking",
+    "task_type": "escort",
     "task_name": "伴随测试任务",
     "task_source": "planning_service",
     "priority": 1,
-    "mode": "escort",
     "target_info": {
       "target_id": "target-001",
       "target_batch_no": 1,
@@ -411,7 +412,6 @@ Invoke-RestMethod `
 - 将 mock 日志持久化到 Redis 或数据库
 - 增加接口测试用例与任务场景回归测试
 - 增加 Dockerfile、启动脚本和麒麟系统部署说明
-
 
 
 

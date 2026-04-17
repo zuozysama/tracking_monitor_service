@@ -169,8 +169,7 @@ class RealLjdssAdapter(DdsAdapter):
                         else str(topic_name)
                     )
 
-                    # For NAV topic, decode from raw_packet (length-constrained by V3 header).
-                    decode_input = raw_packet if topic == OWNSHIP_NAVIGATION_TOPIC else body
+                    decode_input = body
                     decoded = decode_topic_payload(topic, decode_input)
 
                     if isinstance(decoded, dict):
@@ -182,7 +181,7 @@ class RealLjdssAdapter(DdsAdapter):
                         decoded=decoded if isinstance(decoded, dict) else {"decoded": str(decoded)},
                         src=int(sample_obj.contents.SRC),
                         dst=int(sample_obj.contents.DST),
-                        raw_hex=raw_packet.hex(),
+                        raw_hex=body.hex() if topic == OWNSHIP_NAVIGATION_TOPIC else raw_packet.hex(),
                         body_hex=body.hex(),
                         type_name=type_name.decode("utf-8", errors="ignore")
                         if isinstance(type_name, (bytes, bytearray))
