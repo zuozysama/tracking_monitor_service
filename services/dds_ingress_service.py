@@ -4,14 +4,28 @@ from adapters.dds.base import DdsAdapter
 from domain.dds_contract import OWNSHIP_NAVIGATION_TOPIC, TARGET_PERCEPTION_TOPIC
 from domain.models import OwnShipState, TargetState
 from store.situation_store import situation_store
+from utils.config_utils import get_dds_focus_platform_id
 from utils.time_utils import utc_now
+
+_FOCUS_PLATFORM_ID = get_dds_focus_platform_id()
+
+
+def _safe_int(value, default: int = 0) -> int:
+    try:
+        return int(value)
+    except Exception:
+        return default
 
 
 def _on_ownship_message(data: dict) -> None:
     try:
+        platform_id = _safe_int(data.get("platform_id", 0), 0)
+        if platform_id != _FOCUS_PLATFORM_ID:
+            return
+
         msg_ts = data.get("timestamp") or utc_now()
         model = OwnShipState(
-            platform_id=int(data.get("platform_id", 0)),
+            platform_id=platform_id,
             speed_mps=float(data.get("speed_mps", 0.0)),
             heading_deg=float(data.get("heading_deg", 0.0)) % 360.0,
             longitude=float(data.get("longitude", 0.0)),
@@ -24,10 +38,18 @@ def _on_ownship_message(data: dict) -> None:
 
 
 def _on_target_perception_message(data: dict) -> None:
+    source_platform_id = _safe_int(data.get("source_platform_id"), -1)
+    if source_platform_id >= 0 and source_platform_id != _FOCUS_PLATFORM_ID:
+        return
+
     targets_raw = data.get("targets") or []
     models: list[TargetState] = []
     for item in targets_raw:
         try:
+            item_source = _safe_int(item.get("source_platform_id"), -1)
+            if item_source >= 0 and item_source != _FOCUS_PLATFORM_ID:
+                continue
+
             msg_ts = item.get("timestamp") or data.get("timestamp") or utc_now()
             models.append(
                 TargetState(

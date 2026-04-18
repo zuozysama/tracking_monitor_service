@@ -1,5 +1,5 @@
 fixed_tracking:
-  default_region_radius_m: 3000.0
+  default_region_radius_m: 10000.0
 
 tracking:
   target_lost_timeout_sec: 30
@@ -9,7 +9,7 @@ tracking:
 
   filter:
     min_target_range_m: 0.0
-    max_target_range_m: 8000.0
+    max_target_range_m: 20000.0
     bearing_center_deg: 0.0
     bearing_window_deg: 360.0
 
@@ -40,7 +40,7 @@ tracking:
 
     sector_filter_enabled: true
     sector_center_deg: 0.0
-    sector_width_deg: 120.0
+    sector_width_deg: 360.0
 
     top_k_candidates: 4
     hysteresis_enabled: true

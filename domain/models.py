@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -592,21 +592,42 @@ class TaskOutputResponse(CompatModel):
     update_time: datetime
 
 
+class AutonomyPatrolWaypoint(CompatModel):
+    longitude: float
+    latitude: float
+    speed: float = Field(..., ge=0.0)
+
+
+class AutonomyPatrolParams(CompatModel):
+    total_number_of_points: int = Field(..., ge=0)
+    waypoints: List[AutonomyPatrolWaypoint]
+    max_speed: float = Field(..., ge=0.0)
+    end_time: datetime
+
+    @model_validator(mode="after")
+    def validate_waypoint_count(self):
+        if self.total_number_of_points != len(self.waypoints):
+            raise ValueError("total_number_of_points must equal len(waypoints)")
+        return self
+
+
 class AutonomyPatrolDispatch(CompatModel):
-    task_id: str
-    task_type: str = "patrol"
-    plan_type: str = "patrol"
-    waypoints: List[PatrolWaypoint]
-    update_time: datetime
+    task_id: Union[int, str]
+    task_status: int = 0
+    task_mode: int = 1
+    params: AutonomyPatrolParams
 
 
-class AutonomyTrackingDispatch(CompatModel):
-    task_id: str
-    task_type: str
-    plan_type: str
+class AutonomyTrackingParams(CompatModel):
     target_id: Optional[str] = None
     target_batch_no: Optional[int] = None
     rel_range_m: Optional[float] = None
     relative_bearing_deg: Optional[float] = None
-    expected_speed: Optional[float] = None
-    update_time: datetime
+    max_speed: float = Field(..., ge=0.0)
+
+
+class AutonomyTrackingDispatch(CompatModel):
+    task_id: Union[int, str]
+    task_status: int = 1
+    task_mode: int = 3
+    params: AutonomyTrackingParams

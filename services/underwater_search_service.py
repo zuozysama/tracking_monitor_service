@@ -63,6 +63,8 @@ class UnderwaterSearchService:
         task.current_target_batch_no = target.target_batch_no
 
         task.patrol_plan_output = None
+        exp_speed = task.expected_speed if task.expected_speed is not None else 0.0
+
         task.recommended_point = RecommendedPoint(
             longitude=target.longitude,
             latitude=target.latitude,
@@ -71,7 +73,7 @@ class UnderwaterSearchService:
             rel_range_m=0.0,
             rel_bearing_deg=0.0,
             expected_heading=target.heading,
-            expected_speed=target.speed,
+            expected_speed=exp_speed,
             update_time=utc_now(),
         )
 
@@ -82,7 +84,7 @@ class UnderwaterSearchService:
             target_type_code=target.target_type_code,
             hit_longitude=target.longitude,
             hit_latitude=target.latitude,
-            expected_speed=task.expected_speed if task.expected_speed is not None else target.speed,
+            expected_speed=exp_speed,
             coordination_required=True,
             matched=None,
             confidence=None,

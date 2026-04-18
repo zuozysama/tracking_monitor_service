@@ -237,6 +237,8 @@ class TrackingService:
         else:
             rel_range_m = 0.0
 
+        exp_speed = task.expected_speed if task.expected_speed is not None else 0.0
+
         task.recommended_point = RecommendedPoint(
             longitude=point.longitude,
             latitude=point.latitude,
@@ -245,7 +247,7 @@ class TrackingService:
             rel_range_m=rel_range_m,
             rel_bearing_deg=rel_bearing_deg,
             expected_heading=target.heading,
-            expected_speed=target.speed,
+            expected_speed=exp_speed,
             update_time=utc_now(),
         )
 
@@ -256,7 +258,7 @@ class TrackingService:
             target_batch_no=target.target_batch_no,
             rel_range_m=rel_range_m,
             relative_bearing_deg=rel_bearing_deg,
-            expected_speed=task.expected_speed if task.expected_speed is not None else target.speed,
+            expected_speed=exp_speed,
             update_time=utc_now(),
         )
 

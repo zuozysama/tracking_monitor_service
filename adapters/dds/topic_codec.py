@@ -59,7 +59,7 @@ def _decode_gb2312_cstr(raw: bytes) -> str:
 def _parse_common_header(body: bytes) -> tuple[int, str | None]:
     # Common header from protocol doc:
     # protocol_type(4) + version(1) + length(2) + msg_type(1) + seq(4) + reserve(1) + ts(8)
-    header_fmt = "<IBHBIBQ"
+    header_fmt = ">IBHBIBQ"
     header_size = struct.calcsize(header_fmt)
     if len(body) < header_size:
         return 0, None
@@ -139,7 +139,7 @@ def encode_topic_payload(topic: str, payload: dict) -> bytes:
         lat_raw = _i32(round(float(payload.get("latitude", 0.0)) / NAV_GEO_LSB_DEG))
 
         return struct.pack(
-            "<IBHBIBQHHHii",
+            ">IBHBIBQHHHii",
             protocol_type,
             version,
             packet_len,
@@ -155,9 +155,9 @@ def encode_topic_payload(topic: str, payload: dict) -> bytes:
         )
 
     if topic == TARGET_PERCEPTION_TOPIC:
-        # 21-byte common header + 2-byte target_count + 2-byte source_platform_id + N * 88-byte entries
+        # 21-byte common header + 2-byte target_count + N * 90-byte entries.
+        # Each entry starts with 2-byte source_platform_id.
         targets = payload.get("targets") or []
-        source_platform_id = _u16(payload.get("source_platform_id", 0))
 
         protocol_type = _u32(payload.get("protocol_type", 0))
         version = _u16(payload.get("protocol_version", payload.get("version", 1))) & 0xFF
@@ -166,12 +166,12 @@ def encode_topic_payload(topic: str, payload: dict) -> bytes:
         reserve = _u16(payload.get("reserve", 0)) & 0xFF
         ts_0p1ms = _nav_timestamp_0p1ms_from_day_start(payload)
 
-        entry_fmt = "<HHIHHHHHiiHBBIBBB40sHHHBHH"
-        entry_size = struct.calcsize(entry_fmt)  # 88
-        packet_len = 21 + 2 + 2 + len(targets) * entry_size
+        entry_fmt = ">HHHIHHHHHiiHBBIBBB40sHHHBHH"
+        entry_size = struct.calcsize(entry_fmt)  # 90
+        packet_len = 21 + 2 + len(targets) * entry_size
 
         header = struct.pack(
-            "<IBHBIBQ",
+            ">IBHBIBQ",
             protocol_type,
             version,
             packet_len,
@@ -181,10 +181,11 @@ def encode_topic_payload(topic: str, payload: dict) -> bytes:
             ts_0p1ms,
         )
 
-        prefix = struct.pack("<HH", _u16(len(targets)), source_platform_id)
+        prefix = struct.pack(">H", _u16(len(targets)))
 
         body = bytearray()
         for item in targets:
+            source_platform_id = _u16(item.get("source_platform_id", payload.get("source_platform_id", 0)))
             batch_no = _u16(item.get("target_batch_no", 0))
             bearing_x10 = _u16(round(float(item.get("target_bearing_deg", 0.0)) * 10.0))
             distance_m = _u32(round(float(item.get("target_distance_m", 0.0))))
@@ -236,6 +237,7 @@ def encode_topic_payload(topic: str, payload: dict) -> bytes:
             body.extend(
                 struct.pack(
                     entry_fmt,
+                    source_platform_id,
                     batch_no,
                     bearing_x10,
                     distance_m,
@@ -267,7 +269,7 @@ def encode_topic_payload(topic: str, payload: dict) -> bytes:
 
     if topic == TASK_UPDATE_TOPIC:
         return struct.pack(
-            "<64sBBBBBIIHHHB16s",
+            ">64sBBBBBIIHHHB16s",
             _fit_ascii(str(payload.get("task_id") or ""), 64),
             _u16(payload.get("task_type", 0)) & 0xFF,
             _u16(payload.get("task_status", 0)) & 0xFF,
@@ -286,7 +288,7 @@ def encode_topic_payload(topic: str, payload: dict) -> bytes:
     if topic == PREPLAN_RESULT_TOPIC:
         route = payload.get("planned_route") or []
         header = struct.pack(
-            "<64sBH",
+            ">64sBH",
             _fit_ascii(str(payload.get("task_id") or ""), 64),
             _u16(payload.get("task_type", 7)) & 0xFF,
             _u16(payload.get("waypoint_count", len(route))),
@@ -295,7 +297,7 @@ def encode_topic_payload(topic: str, payload: dict) -> bytes:
         for waypoint in route:
             body.extend(
                 struct.pack(
-                    "<iiH",
+                    ">iiH",
                     _i32(round(float(waypoint.get("longitude", 0.0)) * 1e7)),
                     _i32(round(float(waypoint.get("latitude", 0.0)) * 1e7)),
                     _u16(round(float(waypoint.get("expected_speed", 0.0)) * 10)),
@@ -306,7 +308,7 @@ def encode_topic_payload(topic: str, payload: dict) -> bytes:
     if topic == MANUAL_SELECTION_REQUEST_TOPIC:
         candidates = payload.get("candidate_targets") or []
         header = struct.pack(
-            "<64sBH",
+            ">64sBH",
             _fit_ascii(str(payload.get("task_id") or ""), 64),
             _u16(payload.get("timeout_sec", 0)) & 0xFF,
             _u16(len(candidates)),
@@ -315,7 +317,7 @@ def encode_topic_payload(topic: str, payload: dict) -> bytes:
         for item in candidates[:8]:
             body.extend(
                 struct.pack(
-                    "<64sIHB",
+                    ">64sIHB",
                     _fit_ascii(str(item.get("target_id") or ""), 64),
                     _u32(item.get("target_batch_no", 0)),
                     _u16(item.get("target_type_code", 0)),
@@ -327,7 +329,7 @@ def encode_topic_payload(topic: str, payload: dict) -> bytes:
     if topic == MANUAL_SWITCH_REQUEST_TOPIC:
         candidates = payload.get("new_candidate_targets") or []
         header = struct.pack(
-            "<64s64sBH",
+            ">64s64sBH",
             _fit_ascii(str(payload.get("task_id") or ""), 64),
             _fit_ascii(str(payload.get("current_target_id") or ""), 64),
             _u16(payload.get("timeout_sec", 0)) & 0xFF,
@@ -337,7 +339,7 @@ def encode_topic_payload(topic: str, payload: dict) -> bytes:
         for item in candidates[:8]:
             body.extend(
                 struct.pack(
-                    "<64sIHB",
+                    ">64sIHB",
                     _fit_ascii(str(item.get("target_id") or ""), 64),
                     _u32(item.get("target_batch_no", 0)),
                     _u16(item.get("target_type_code", 0)),
@@ -348,7 +350,7 @@ def encode_topic_payload(topic: str, payload: dict) -> bytes:
 
     if topic == ELECTRO_OPTICAL_LINKAGE_CMD_TOPIC:
         return struct.pack(
-            "<HIBBI16s",
+            ">HIBBI16s",
             _u16(payload.get("task_type", 0)),
             _u32(payload.get("task_no", 1)),
             _u16(payload.get("task_status", 0)) & 0xFF,
@@ -359,7 +361,7 @@ def encode_topic_payload(topic: str, payload: dict) -> bytes:
 
     if topic == STREAM_MEDIA_PARAM_TOPIC:
         return struct.pack(
-            "<64sBBBB256s256s32s",
+            ">64sBBBB256s256s32s",
             _fit_ascii(str(payload.get("task_id") or ""), 64),
             _u16(payload.get("task_type", 0)) & 0xFF,
             _u16(payload.get("media_event_type", 0)) & 0xFF,
@@ -399,11 +401,11 @@ def decode_topic_payload(topic: str, body: bytes) -> dict:
                 "decode_error": f"NAV14 too short: got {len(nav14)} bytes, need {NAV_FIELDS_LEN}",
             }
 
-        uid = int.from_bytes(nav14[0:2], byteorder="little", signed=False)
-        speed_raw = int.from_bytes(nav14[2:4], byteorder="little", signed=False)
-        heading_raw = int.from_bytes(nav14[4:6], byteorder="little", signed=False)
-        lon_raw = int.from_bytes(nav14[6:10], byteorder="little", signed=True)
-        lat_raw = int.from_bytes(nav14[10:14], byteorder="little", signed=True)
+        uid = int.from_bytes(nav14[0:2], byteorder="big", signed=False)
+        speed_raw = int.from_bytes(nav14[2:4], byteorder="big", signed=False)
+        heading_raw = int.from_bytes(nav14[4:6], byteorder="big", signed=False)
+        lon_raw = int.from_bytes(nav14[6:10], byteorder="big", signed=True)
+        lat_raw = int.from_bytes(nav14[10:14], byteorder="big", signed=True)
 
         speed_mps = float(speed_raw) * 0.01
         heading_deg = float(heading_raw) % 360.0
@@ -445,57 +447,97 @@ def decode_topic_payload(topic: str, body: bytes) -> dict:
         common_offset, common_ts = _parse_common_header(body)
         payload = body[common_offset:] if common_offset else body
 
-        if len(payload) < 4:
+        if len(payload) < 2:
             return {
                 "raw_hex": body.hex(),
-                "decode_error": f"target payload too short: got {len(payload)} bytes, need at least 4",
+                "decode_error": f"target payload too short: got {len(payload)} bytes, need at least 2",
             }
 
-        target_count, source_platform_id = struct.unpack("<HH", payload[:4])
+        target_count = struct.unpack(">H", payload[:2])[0]
 
-        entry_fmt = "<HHIHHHHHiiHBBIBBB40sHHHBHH"
-        entry_size = struct.calcsize(entry_fmt)  # 88
+        entry_fmt_v2 = ">HHHIHHHHHiiHBBIBBB40sHHHBHH"
+        entry_size_v2 = struct.calcsize(entry_fmt_v2)  # 90
+        expected_len_v2 = 2 + target_count * entry_size_v2
 
-        expected_len = 4 + target_count * entry_size
-        if len(payload) < expected_len:
+        entry_fmt_legacy = ">HHIHHHHHiiHBBIBBB40sHHHBHH"
+        entry_size_legacy = struct.calcsize(entry_fmt_legacy)  # 88
+        expected_len_legacy = 4 + target_count * entry_size_legacy
+
+        use_v2_layout = len(payload) >= expected_len_v2
+        use_legacy_layout = len(payload) >= expected_len_legacy
+        if not use_v2_layout and not use_legacy_layout:
             return {
                 "raw_hex": body.hex(),
                 "decode_error": (
                     f"target payload length mismatch: got {len(payload)} bytes, "
-                    f"need at least {expected_len} for {target_count} targets"
+                    f"need at least {min(expected_len_v2, expected_len_legacy)} for {target_count} targets"
                 ),
             }
 
+        entry_fmt = entry_fmt_v2 if use_v2_layout else entry_fmt_legacy
+        entry_size = entry_size_v2 if use_v2_layout else entry_size_legacy
+        legacy_source_platform_id = struct.unpack(">H", payload[2:4])[0] if not use_v2_layout else 0
+
         targets = []
-        offset = 4
+        offset = 2 if use_v2_layout else 4
         for _i in range(target_count):
             chunk = payload[offset : offset + entry_size]
-            (
-                batch_no,
-                bearing_x10,
-                distance_m,
-                height_x10,
-                abs_speed_x10,
-                abs_heading_x10,
-                rel_speed_x10,
-                rel_heading_x10,
-                lon_raw,
-                lat_raw,
-                qt_value,
-                coord_sys,
-                is_simulated,
-                target_ts_raw,
-                position_attr,
-                target_type_code,
-                military_civil_attr,
-                target_name_raw,
-                target_len_x10,
-                target_width_x10,
-                target_height_x10,
-                threat_level,
-                rcs_x10,
-                custom2,
-            ) = struct.unpack(entry_fmt, chunk)
+            if use_v2_layout:
+                (
+                    source_platform_id,
+                    batch_no,
+                    bearing_x10,
+                    distance_m,
+                    height_x10,
+                    abs_speed_x10,
+                    abs_heading_x10,
+                    rel_speed_x10,
+                    rel_heading_x10,
+                    lon_raw,
+                    lat_raw,
+                    qt_value,
+                    coord_sys,
+                    is_simulated,
+                    target_ts_raw,
+                    position_attr,
+                    target_type_code,
+                    military_civil_attr,
+                    target_name_raw,
+                    target_len_x10,
+                    target_width_x10,
+                    target_height_x10,
+                    threat_level,
+                    rcs_x10,
+                    custom2,
+                ) = struct.unpack(entry_fmt, chunk)
+            else:
+                (
+                    batch_no,
+                    bearing_x10,
+                    distance_m,
+                    height_x10,
+                    abs_speed_x10,
+                    abs_heading_x10,
+                    rel_speed_x10,
+                    rel_heading_x10,
+                    lon_raw,
+                    lat_raw,
+                    qt_value,
+                    coord_sys,
+                    is_simulated,
+                    target_ts_raw,
+                    position_attr,
+                    target_type_code,
+                    military_civil_attr,
+                    target_name_raw,
+                    target_len_x10,
+                    target_width_x10,
+                    target_height_x10,
+                    threat_level,
+                    rcs_x10,
+                    custom2,
+                ) = struct.unpack(entry_fmt, chunk)
+                source_platform_id = legacy_source_platform_id
 
             target_name = _decode_gb2312_cstr(target_name_raw)
             target_generated_ts = _format_target_generated_ts(common_ts, int(target_ts_raw))
@@ -536,7 +578,7 @@ def decode_topic_payload(topic: str, body: bytes) -> dict:
             offset += entry_size
 
         return {
-            "source_platform_id": int(source_platform_id),
+            "source_platform_id": int(targets[0]["source_platform_id"]) if targets else int(legacy_source_platform_id),
             "target_count": int(target_count),
             "entry_size": entry_size,
             "targets": targets,

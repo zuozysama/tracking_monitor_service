@@ -65,11 +65,40 @@ def _has_explicit_identity_constraint(constraint: Optional[TargetConstraint]) ->
     return bool(constraint.target_id or constraint.target_batch_no is not None)
 
 
+def _canonical_numeric_target_id(value: Optional[str]) -> Optional[int]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.isdigit():
+        return int(text)
+    prefix = "target-"
+    if text.lower().startswith(prefix):
+        suffix = text[len(prefix):]
+        if suffix.isdigit():
+            return int(suffix)
+    return None
+
+
+def _target_id_matches(target_id: Optional[str], constraint_target_id: Optional[str]) -> bool:
+    if constraint_target_id in (None, ""):
+        return True
+    if target_id == constraint_target_id:
+        return True
+
+    target_num = _canonical_numeric_target_id(target_id)
+    constraint_num = _canonical_numeric_target_id(constraint_target_id)
+    if target_num is not None and constraint_num is not None:
+        return target_num == constraint_num
+    return False
+
+
 def _target_identity_hard_filter(target: TargetState, constraint: Optional[TargetConstraint]) -> bool:
     if constraint is None:
         return True
 
-    if constraint.target_id and target.target_id != constraint.target_id:
+    if constraint.target_id and not _target_id_matches(target.target_id, constraint.target_id):
         return False
     if constraint.target_batch_no is not None and target.target_batch_no != constraint.target_batch_no:
         return False
@@ -114,7 +143,7 @@ def _target_identity_score(target: TargetState, constraint: Optional[TargetConst
         return 0.0
 
     score = 0.0
-    if constraint.target_id and target.target_id == constraint.target_id:
+    if constraint.target_id and _target_id_matches(target.target_id, constraint.target_id):
         score += weights["target_id"]
     if constraint.target_batch_no is not None and target.target_batch_no == constraint.target_batch_no:
         score += weights["batch_id"]

@@ -11,12 +11,19 @@ class AutonomyClient:
     def _cfg(self):
         return settings.external_services.autonomy
 
+    def _set_plan_url(self) -> str:
+        cfg = self._cfg()
+        base_url = cfg.base_url.strip()
+        if base_url.rstrip("/").endswith("/api/v1/set_plan"):
+            return base_url.rstrip("/")
+        return base_url.rstrip("/") + "/api/v1/set_plan"
+
     def post_patrol_plan(self, payload: AutonomyPatrolDispatch) -> dict:
         if self._mode() == "http":
             cfg = self._cfg()
             try:
                 return http_post_json(
-                    url=cfg.base_url.rstrip("/") + "/api/v1/internal/patrol/dispatch",
+                    url=self._set_plan_url(),
                     timeout_sec=cfg.timeout_sec,
                     payload=payload.model_dump(mode="json"),
                 )
@@ -39,7 +46,7 @@ class AutonomyClient:
             cfg = self._cfg()
             try:
                 return http_post_json(
-                    url=cfg.base_url.rstrip("/") + "/api/v1/internal/tracking/dispatch",
+                    url=self._set_plan_url(),
                     timeout_sec=cfg.timeout_sec,
                     payload=payload.model_dump(mode="json"),
                 )

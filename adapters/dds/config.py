@@ -34,6 +34,9 @@ def load_dds_runtime_config() -> DdsRuntimeConfig:
 
     mode = os.getenv("DDS_MODE", str(runtime_cfg.get("mode", "mock"))).strip().lower()
     platform = os.getenv("DDS_PLATFORM", str(runtime_cfg.get("platform", "win"))).strip().lower()
+    # Keep legacy value compatible with current Linux runtime naming.
+    if platform == "ft2000":
+        platform = "linux"
     domain_id = int(os.getenv("DDS_DOMAIN_ID", runtime_cfg.get("domain_id", 0)))
     qos_file = os.getenv("DDS_QOS_FILE", str(runtime_cfg.get("qos_file", "config/dds_qos.xml")))
     qos_profile = os.getenv("DDS_QOS_PROFILE", str(runtime_cfg.get("qos_profile", "BestEffort"))).strip()

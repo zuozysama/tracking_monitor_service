@@ -32,6 +32,7 @@ RUN set -eux; \
     find /app -type f -name "*.sh" -exec sed -i 's/\r$//' {} +; \
     find /app/thirdparty/ljdds -type f \( -name "*.sh" -o -name "*.ini" -o -name "*.xml" -o -name "*.conf" \) -exec sed -i 's/\r$//' {} +; \
     pip install "/app/thirdparty/ljdds/ljdds_python-3.0.1-py3-none-any.whl"; \
+    python /app/scripts/prepare_swagger_assets.py; \
     chmod +x /app/docker-entrypoint-dds.sh; \
     find /app -type f -name "*.sh" -exec chmod +x {} +
 

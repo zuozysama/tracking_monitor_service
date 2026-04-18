@@ -40,7 +40,7 @@ external_services:
 新增 `config/dds_settings.yaml` 用于 DDS 运行模式切换：
 
 - `runtime.mode: mock|real`
-- `runtime.platform: win|ft2000`
+- `runtime.platform: win|linux`（`ft2000` 兼容映射为 `linux`）
 - `runtime.domain_id`
 - `runtime.qos_file`
 - `runtime.license_file`

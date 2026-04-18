@@ -1,5 +1,6 @@
+import os
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import yaml
 from pydantic import BaseModel, Field
@@ -114,11 +115,57 @@ def _load_yaml_dict(config_path: Path) -> Dict[str, Any]:
     return data
 
 
+def _get_env_str(name: str) -> Optional[str]:
+    value = os.getenv(name)
+    if value is None:
+        return None
+    value = value.strip()
+    return value if value else None
+
+
+def _get_env_float(name: str) -> Optional[float]:
+    value = _get_env_str(name)
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except Exception:
+        return None
+
+
+def _apply_external_service_env_overrides(merged: Dict[str, Any]) -> Dict[str, Any]:
+    result = dict(merged)
+    external_services = dict(result.get("external_services") or {})
+
+    service_names = ["optronic", "media", "planning", "sonar", "autonomy"]
+    for service_name in service_names:
+        section = dict(external_services.get(service_name) or {})
+        prefix = f"EXTERNAL_{service_name.upper()}"
+
+        mode = _get_env_str(f"{prefix}_MODE")
+        if mode is not None:
+            section["mode"] = mode
+
+        base_url = _get_env_str(f"{prefix}_BASE_URL")
+        if base_url is not None:
+            section["base_url"] = base_url
+
+        timeout_sec = _get_env_float(f"{prefix}_TIMEOUT_SEC")
+        if timeout_sec is not None:
+            section["timeout_sec"] = timeout_sec
+
+        external_services[service_name] = section
+
+    result["external_services"] = external_services
+    return result
+
+
 def load_settings(config_file: str = "config/service_settings.yaml") -> ServiceConfig:
     config_path = Path(config_file)
     default_dict = _default_settings_dict()
     yaml_dict = _load_yaml_dict(config_path)
     merged = _deep_merge(default_dict, yaml_dict)
+    merged = _apply_external_service_env_overrides(merged)
     return ServiceConfig(**merged)
 
 

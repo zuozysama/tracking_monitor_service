@@ -1,3 +1,5 @@
+import os
+
 from config.settings import settings
 
 
@@ -124,3 +126,11 @@ def get_optical_post_retry_interval_sec() -> int:
 
 def get_sonar_poll_interval_sec() -> int:
     return settings.collaboration.sonar_poll_interval_sec
+
+
+def get_dds_focus_platform_id() -> int:
+    raw = os.getenv("DDS_FOCUS_PLATFORM_ID", "1001").strip()
+    try:
+        return int(raw)
+    except Exception:
+        return 1001

@@ -14,18 +14,7 @@ def get_autonomy_patrol_logs():
 @router.get("/tracking/logs")
 def get_autonomy_tracking_logs():
     tracking_logs = collaboration_store.get_autonomy_tracking_logs()
-    # For tracking tasks in waiting_target state, autonomy receives patrol waypoints.
-    # Expose those records in tracking/logs as well for easier end-to-end verification.
-    tracking_patrol_logs = [
-        item
-        for item in collaboration_store.get_autonomy_patrol_logs()
-        if str(item.get("task_type")) in {
-            "escort",
-            "intercept",
-            "expel",
-            "TaskType.ESCORT",
-            "TaskType.INTERCEPT",
-            "TaskType.EXPEL",
-        }
-    ]
+    # New autonomy payload no longer carries task_type on patrol dispatch,
+    # so expose patrol logs directly for end-to-end verification.
+    tracking_patrol_logs = collaboration_store.get_autonomy_patrol_logs()
     return ok({"items": tracking_logs + tracking_patrol_logs})

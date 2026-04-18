@@ -1,32 +1,82 @@
 from fastapi import APIRouter, HTTPException
+from typing import Optional
 
 from domain.models import (
     CreateTaskRequest,
     FeasibilityCallbackRequest,
+    GeoPoint,
+    TaskContext,
     TerminateTaskRequest,
 )
 from domain.response import ok
 from services.task_service import task_service
+from utils.geo_utils import haversine_distance_m
 
 router = APIRouter()
+
+
+def _build_preplan_result(task: TaskContext) -> Optional[dict]:
+    if task.preplan_output is None:
+        return None
+
+    planned_route = task.preplan_output.planned_route or []
+    route_items: list[dict] = []
+    accumulated_eta_sec = 0.0
+
+    for idx, waypoint in enumerate(planned_route):
+        point_type = "normal"
+        if idx == 0:
+            point_type = "start"
+        elif idx == len(planned_route) - 1:
+            point_type = "end"
+
+        item = {
+            "longitude": waypoint.longitude,
+            "latitude": waypoint.latitude,
+            "expected_speed": waypoint.expected_speed,
+            "point_type": point_type,
+        }
+
+        if idx == 0:
+            item["eta_sec"] = 0
+        else:
+            previous = planned_route[idx - 1]
+            speed_mps = waypoint.expected_speed or previous.expected_speed or task.expected_speed or 0.0
+            if speed_mps > 0:
+                segment_distance_m = haversine_distance_m(
+                    GeoPoint(longitude=previous.longitude, latitude=previous.latitude),
+                    GeoPoint(longitude=waypoint.longitude, latitude=waypoint.latitude),
+                )
+                accumulated_eta_sec += segment_distance_m / speed_mps
+                item["eta_sec"] = int(round(accumulated_eta_sec))
+
+        route_items.append(item)
+
+    return {
+        "plan_type": "preplan",
+        "waypoint_count": len(route_items),
+        "planned_route": route_items,
+    }
 
 
 @router.post("/tasks")
 def create_task(req: CreateTaskRequest):
     try:
         task = task_service.create_task(req)
-        return ok(
-            {
-                "task_id": task.task_id,
-                "task_type": task.task_type,
-                "task_name": task.task_name,
-                "task_status": task.status,
-                "execution_phase": task.execution_phase,
-                "create_time": task.create_time,
-                "start_time": task.start_time,
-                "update_time": task.update_time,
-            }
-        )
+        payload = {
+            "task_id": task.task_id,
+            "task_type": task.task_type,
+            "task_name": task.task_name,
+            "task_status": task.status,
+            "execution_phase": task.execution_phase,
+            "create_time": task.create_time,
+            "start_time": task.start_time,
+            "update_time": task.update_time,
+        }
+        preplan_result = _build_preplan_result(task)
+        if preplan_result is not None:
+            payload["preplan_result"] = preplan_result
+        return ok(payload)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

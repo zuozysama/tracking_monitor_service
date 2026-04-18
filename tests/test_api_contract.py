@@ -102,6 +102,46 @@ class ApiContractTestCase(unittest.TestCase):
         self.assertEqual(body["code"], 200)
         self.assertEqual(body["data"]["media_protocol"], "webrtc")
 
+    def test_create_preplan_task_returns_preplan_result(self):
+        task_id = "task-preplan-contract-001"
+        resp = self.client.post(
+            "/api/v1/tasks",
+            json={
+                "task_id": task_id,
+                "task_type": "preplan",
+                "task_name": "preplan-contract-test",
+                "task_area": {
+                    "area_type": "polygon",
+                    "points": [
+                        {"longitude": 121.49, "latitude": 31.21},
+                        {"longitude": 121.52, "latitude": 31.21},
+                        {"longitude": 121.52, "latitude": 31.23},
+                    ],
+                },
+                "expected_speed": 10.0,
+                "end_condition": {"duration_sec": 120},
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["code"], 200)
+        self.assertEqual(body["data"]["task_id"], task_id)
+        self.assertEqual(body["data"]["task_type"], "preplan")
+        self.assertIn("preplan_result", body["data"])
+        self.assertNotIn("preplan_output", body["data"])
+
+        preplan_result = body["data"]["preplan_result"]
+        self.assertEqual(preplan_result["plan_type"], "preplan")
+        self.assertGreater(preplan_result["waypoint_count"], 0)
+        self.assertEqual(preplan_result["waypoint_count"], len(preplan_result["planned_route"]))
+
+        first = preplan_result["planned_route"][0]
+        self.assertIn("longitude", first)
+        self.assertIn("latitude", first)
+        self.assertIn("expected_speed", first)
+        self.assertEqual(first["point_type"], "start")
+        self.assertEqual(first["eta_sec"], 0)
+
     def test_manual_feedback_contract(self):
         task_id = "task-manual-001"
         self.client.post(

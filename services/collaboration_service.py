@@ -1,6 +1,6 @@
 import json
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, Union
 
 from adapters.dds import get_dds_adapter
 from clients.autonomy_client import autonomy_client
@@ -25,7 +25,10 @@ from domain.dds_contract import (
 from domain.enums import TaskStatus, FinishReason, TaskType
 from domain.models import (
     AutonomyPatrolDispatch,
+    AutonomyPatrolParams,
+    AutonomyPatrolWaypoint,
     AutonomyTrackingDispatch,
+    AutonomyTrackingParams,
     GeoPoint,
     ManualSelectionRequest,
     ManualSwitchRequest,
@@ -352,33 +355,38 @@ class CollaborationService:
 
     def _build_autonomy_signature_payload(self, payload_obj) -> Optional[dict]:
         if isinstance(payload_obj, AutonomyPatrolDispatch):
-            return {
-                "task_id": payload_obj.task_id,
-                "task_type": payload_obj.task_type,
-                "plan_type": payload_obj.plan_type,
-                "waypoints": [
-                    {
-                        "longitude": waypoint.longitude,
-                        "latitude": waypoint.latitude,
-                        "expected_speed": waypoint.expected_speed,
-                    }
-                    for waypoint in payload_obj.waypoints
-                ],
-            }
+            return payload_obj.model_dump(mode="json")
 
         if isinstance(payload_obj, AutonomyTrackingDispatch):
-            return {
-                "task_id": payload_obj.task_id,
-                "task_type": payload_obj.task_type,
-                "plan_type": payload_obj.plan_type,
-                "target_id": payload_obj.target_id,
-                "target_batch_no": payload_obj.target_batch_no,
-                "rel_range_m": payload_obj.rel_range_m,
-                "relative_bearing_deg": payload_obj.relative_bearing_deg,
-                "expected_speed": payload_obj.expected_speed,
-            }
+            return payload_obj.model_dump(mode="json")
 
         return None
+
+    @staticmethod
+    def _coerce_autonomy_task_id(task_id: str) -> Union[int, str]:
+        if task_id.isdigit():
+            try:
+                return int(task_id)
+            except ValueError:
+                return task_id
+        return task_id
+
+    @staticmethod
+    def _resolve_exp_speed(task: TaskContext, fallback_speed: Optional[float] = None) -> float:
+        if task.expected_speed is not None:
+            return float(task.expected_speed)
+        if fallback_speed is not None:
+            return float(fallback_speed)
+        return 0.0
+
+    @staticmethod
+    def _resolve_patrol_end_time(task: TaskContext, fallback_time: datetime) -> datetime:
+        if task.end_time is not None:
+            return task.end_time
+        duration_sec = task.end_condition.duration_sec if task.end_condition is not None else None
+        if duration_sec is not None and task.start_time is not None:
+            return task.start_time + timedelta(seconds=duration_sec)
+        return fallback_time
 
     def report_stage_if_changed(self, task: TaskContext) -> None:
         stage = task.execution_phase
@@ -440,53 +448,70 @@ class CollaborationService:
         payload_obj = None
 
         if task.patrol_plan_output is not None:
-            task_type_value = task.task_type.value if hasattr(task.task_type, "value") else str(task.task_type)
+            exp_speed = self._resolve_exp_speed(task)
+            waypoints = [
+                AutonomyPatrolWaypoint(
+                    longitude=waypoint.longitude,
+                    latitude=waypoint.latitude,
+                    speed=exp_speed,
+                )
+                for waypoint in task.patrol_plan_output.waypoints
+            ]
             payload_obj = AutonomyPatrolDispatch(
-                task_id=task.task_id,
-                task_type=task_type_value,
-                plan_type="patrol",
-                waypoints=task.patrol_plan_output.waypoints,
-                update_time=task.patrol_plan_output.update_time,
+                task_id=self._coerce_autonomy_task_id(task.task_id),
+                task_status=0,
+                task_mode=1,
+                params=AutonomyPatrolParams(
+                    total_number_of_points=len(waypoints),
+                    waypoints=waypoints,
+                    max_speed=exp_speed,
+                    end_time=self._resolve_patrol_end_time(task, task.patrol_plan_output.update_time),
+                ),
             )
 
         elif task.tracking_plan_output is not None:
-            task_type_value = task.task_type.value if hasattr(task.task_type, "value") else str(task.task_type)
+            exp_speed = self._resolve_exp_speed(task, task.tracking_plan_output.expected_speed)
             payload_obj = AutonomyTrackingDispatch(
-                task_id=task.task_id,
-                task_type=task_type_value,
-                plan_type="tracking",
-                target_id=task.tracking_plan_output.target_id,
-                target_batch_no=task.tracking_plan_output.target_batch_no,
-                rel_range_m=task.tracking_plan_output.rel_range_m,
-                relative_bearing_deg=task.tracking_plan_output.relative_bearing_deg,
-                expected_speed=task.tracking_plan_output.expected_speed,
-                update_time=task.tracking_plan_output.update_time,
+                task_id=self._coerce_autonomy_task_id(task.task_id),
+                task_status=1,
+                task_mode=3,
+                params=AutonomyTrackingParams(
+                    target_id=task.tracking_plan_output.target_id,
+                    target_batch_no=task.tracking_plan_output.target_batch_no,
+                    rel_range_m=task.tracking_plan_output.rel_range_m,
+                    relative_bearing_deg=task.tracking_plan_output.relative_bearing_deg,
+                    max_speed=exp_speed,
+                ),
             )
 
         elif task.underwater_search_output is not None and task.recommended_point is not None:
+            exp_speed = self._resolve_exp_speed(task, task.underwater_search_output.expected_speed)
             payload_obj = AutonomyTrackingDispatch(
-                task_id=task.task_id,
-                task_type="underwater_search",
-                plan_type="underwater_search",
-                target_id=task.underwater_search_output.target_id,
-                target_batch_no=task.underwater_search_output.target_batch_no,
-                rel_range_m=task.recommended_point.rel_range_m,
-                relative_bearing_deg=task.recommended_point.rel_bearing_deg,
-                expected_speed=task.underwater_search_output.expected_speed,
-                update_time=task.underwater_search_output.update_time,
+                task_id=self._coerce_autonomy_task_id(task.task_id),
+                task_status=1,
+                task_mode=3,
+                params=AutonomyTrackingParams(
+                    target_id=task.underwater_search_output.target_id,
+                    target_batch_no=task.underwater_search_output.target_batch_no,
+                    rel_range_m=task.recommended_point.rel_range_m,
+                    relative_bearing_deg=task.recommended_point.rel_bearing_deg,
+                    max_speed=exp_speed,
+                ),
             )
 
         elif task.fixed_tracking_output is not None:
+            exp_speed = self._resolve_exp_speed(task, task.fixed_tracking_output.expected_speed)
             payload_obj = AutonomyTrackingDispatch(
-                task_id=task.task_id,
-                task_type="fixed_tracking",
-                plan_type="fixed_tracking",
-                target_id=None,
-                target_batch_no=None,
-                rel_range_m=0.0,
-                relative_bearing_deg=0.0,
-                expected_speed=task.fixed_tracking_output.expected_speed,
-                update_time=task.fixed_tracking_output.update_time,
+                task_id=self._coerce_autonomy_task_id(task.task_id),
+                task_status=1,
+                task_mode=3,
+                params=AutonomyTrackingParams(
+                    target_id=None,
+                    target_batch_no=None,
+                    rel_range_m=0.0,
+                    relative_bearing_deg=0.0,
+                    max_speed=exp_speed,
+                ),
             )
 
         if payload_obj is None:
