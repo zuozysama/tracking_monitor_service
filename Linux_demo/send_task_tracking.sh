@@ -24,10 +24,10 @@ curl -sS -X POST "${BASE_URL}/api/v1/tasks" \
   "task_area": {
     "area_type": "polygon",
     "points": [
-      { "longitude": 121.49, "latitude": 31.21 },
-      { "longitude": 121.52, "latitude": 31.21 },
-      { "longitude": 121.52, "latitude": 31.23 },
-      { "longitude": 121.49, "latitude": 31.23 }
+      { "longitude": 124.20, "latitude": 21.53 },
+      { "longitude": 124.79, "latitude": 21.53 },
+      { "longitude": 124.20, "latitude": 21.30 },
+      { "longitude": 124.79, "latitude": 21.30 }
     ]
   },
   "expected_speed": 12.0,
