@@ -2,7 +2,7 @@ import struct
 import unittest
 
 from adapters.dds.topic_codec import decode_topic_payload, encode_topic_payload
-from domain.dds_contract import OWNSHIP_NAVIGATION_TOPIC, TARGET_PERCEPTION_TOPIC
+from domain.dds_contract import OWNSHIP_NAVIGATION_TOPIC, TARGET_PERCEPTION_TOPIC, TASK_UPDATE_TOPIC
 
 GEO_LSB_DEG = 180.0 / (2 ** 31)
 
@@ -271,6 +271,56 @@ class TopicCodecDecodeTestCase(unittest.TestCase):
         self.assertEqual(t0["target_type_code"], 400)
         self.assertEqual(t0["target_generated_timestamp_raw"], 1234500)
         self.assertIsNotNone(t0["target_generated_timestamp"])
+
+    def test_encode_task_update_21_plus_100(self):
+        body = encode_topic_payload(
+            TASK_UPDATE_TOPIC,
+            {
+                "protocol_type": 0,
+                "protocol_version": 1,
+                "msg_type": 9,
+                "msg_seq": 123,
+                "reserve": 0,
+                "timestamp_0p1ms": 456789,
+                "task_id": "task-001",
+                "task_type": 2,
+                "task_status": 3,
+                "execution_phase": 5,
+                "update_type": 2,
+                "result_type": 2,
+                "current_target_batch_no": 101,
+                "rel_range_m": 2300,
+                "relative_bearing_deg_x10": 1234,
+                "expected_speed_x10": 88,
+                "waypoint_count": 6,
+                "finish_reason": 4,
+            },
+        )
+
+        self.assertEqual(len(body), 121)
+        protocol_type, version, packet_len, msg_type, seq, reserve, ts_0p1ms = struct.unpack(">IBHBIBQ", body[:21])
+        self.assertEqual(protocol_type, 0)
+        self.assertEqual(version, 1)
+        self.assertEqual(packet_len, 121)
+        self.assertEqual(msg_type, 9)
+        self.assertEqual(seq, 123)
+        self.assertEqual(reserve, 0)
+        self.assertEqual(ts_0p1ms, 456789)
+
+        decoded = decode_topic_payload(TASK_UPDATE_TOPIC, body)
+        self.assertEqual(decoded["task_id"], "task-001")
+        self.assertEqual(decoded["task_type"], 2)
+        self.assertEqual(decoded["task_status"], 3)
+        self.assertEqual(decoded["execution_phase"], 5)
+        self.assertEqual(decoded["update_type"], 2)
+        self.assertEqual(decoded["result_type"], 2)
+        self.assertEqual(decoded["current_target_batch_no"], 101)
+        self.assertEqual(decoded["rel_range_m"], 2300)
+        self.assertEqual(decoded["relative_bearing_deg_x10"], 1234)
+        self.assertEqual(decoded["expected_speed_x10"], 88)
+        self.assertEqual(decoded["waypoint_count"], 6)
+        self.assertEqual(decoded["finish_reason"], 4)
+        self.assertEqual(decoded["decode_format"], "task_update_21_plus_100_fields")
 
 
 if __name__ == "__main__":

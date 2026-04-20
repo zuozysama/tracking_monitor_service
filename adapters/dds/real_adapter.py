@@ -37,7 +37,16 @@ class RealLjdssAdapter(DdsAdapter):
         self._qos_profile = cfg.qos_profile or "BestEffort"
         self._try_load_sdk()
 
-    def _log(self, topic: str, payload: dict, adapter: str, reason: str = "", wire_length: int = 0) -> None:
+    def _log(
+        self,
+        topic: str,
+        payload: dict,
+        adapter: str,
+        reason: str = "",
+        wire_length: int = 0,
+        raw_hex: str = "",
+        body_hex: str = "",
+    ) -> None:
         item = {
             "topic": topic,
             "payload": payload,
@@ -48,6 +57,10 @@ class RealLjdssAdapter(DdsAdapter):
             item["reason"] = reason
         if wire_length:
             item["wire_length"] = wire_length
+        if raw_hex:
+            item["raw_hex"] = raw_hex
+        if body_hex:
+            item["body_hex"] = body_hex
         collaboration_store.append_dds_publish_log(item)
 
     def _log_subscribe(
@@ -269,7 +282,15 @@ class RealLjdssAdapter(DdsAdapter):
                 memmove(addressof(instance.MSG) + head_size, body, len(body))
 
             self._dds.write_data(topic, instance, v3header.length)
-            self._log(topic=topic, payload=payload, adapter="real", wire_length=v3header.length)
+            wire_packet = v3header.pack() + body
+            self._log(
+                topic=topic,
+                payload=payload,
+                adapter="real",
+                wire_length=v3header.length,
+                raw_hex=wire_packet.hex(),
+                body_hex=body.hex(),
+            )
         except Exception as exc:
             self._log(topic=topic, payload=payload, adapter="real-error", reason=str(exc))
 
@@ -310,4 +331,3 @@ class RealLjdssAdapter(DdsAdapter):
             self._dr_listener = None
             self._pub_topics.clear()
             self._sub_topics.clear()
-
