@@ -177,12 +177,13 @@ class RealLjdssAdapter(DdsAdapter):
                     except Exception:
                         sample_size = 0
 
-                    if type_name_text != "CSMXP_V3":
+                    type_name_mismatch = type_name_text != "CSMXP_V3"
+                    if type_name_mismatch:
                         outer._log_subscribe(
                             topic=topic,
                             decoded={
-                                "listener_skipped": True,
-                                "skip_reason": "type_name_mismatch",
+                                "listener_warning": True,
+                                "warning_reason": "type_name_mismatch_but_continue",
                                 "expected_type_name": "CSMXP_V3",
                                 "actual_type_name": type_name_text,
                                 "actual_type_name_repr": repr(type_name),
@@ -194,7 +195,6 @@ class RealLjdssAdapter(DdsAdapter):
                             type_name=type_name_text,
                             sample_size=sample_size,
                         )
-                        return
 
                     sample_obj = cast(sample, POINTER(CSMXP_V3))
                     msg = bytes(sample_obj.contents.MSG)
@@ -244,6 +244,7 @@ class RealLjdssAdapter(DdsAdapter):
                             {
                                 "callback_topic": topic,
                                 "callback_type_name": type_name_text,
+                                "type_name_mismatch": bool(type_name_mismatch),
                                 "sample_size": sample_size,
                                 "msg_buffer_len": len(msg),
                                 "head_size": int(head_size),
