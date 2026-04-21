@@ -15,6 +15,7 @@ class CollaborationStore:
         self._sonar_status_by_task: Dict[str, SonarMatchStatus] = {}
         self._autonomy_patrol_logs: List[dict] = []
         self._autonomy_tracking_logs: List[dict] = []
+        self._autonomy_http_dispatch_logs: List[dict] = []
         self._optical_linkage_logs: List[dict] = []
         self._manual_selection_requests: List[dict] = []
         self._manual_switch_requests: List[dict] = []
@@ -96,6 +97,12 @@ class CollaborationStore:
     def get_autonomy_tracking_logs(self) -> List[dict]:
         return self._autonomy_tracking_logs
 
+    def append_autonomy_http_dispatch_log(self, item: dict) -> None:
+        self._autonomy_http_dispatch_logs.append(item)
+
+    def get_autonomy_http_dispatch_logs(self) -> List[dict]:
+        return self._autonomy_http_dispatch_logs
+
     def append_optical_linkage_log(self, item: dict) -> None:
         self._optical_linkage_logs.append(item)
 
@@ -148,6 +155,7 @@ class CollaborationStore:
         self._sonar_status_by_task.clear()
         self._autonomy_patrol_logs.clear()
         self._autonomy_tracking_logs.clear()
+        self._autonomy_http_dispatch_logs.clear()
         self._optical_linkage_logs.clear()
         self._manual_selection_requests.clear()
         self._manual_switch_requests.clear()

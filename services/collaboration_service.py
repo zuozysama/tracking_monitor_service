@@ -363,6 +363,20 @@ class CollaborationService:
         return None
 
     @staticmethod
+    def _is_autonomy_dispatch_success(result: Optional[dict]) -> bool:
+        if not isinstance(result, dict):
+            return False
+        if isinstance(result.get("accepted"), bool):
+            return bool(result.get("accepted"))
+        data = result.get("data")
+        if isinstance(data, dict) and isinstance(data.get("accepted"), bool):
+            return bool(data.get("accepted"))
+        accepted = result.get("accepted")
+        if isinstance(accepted, int):
+            return accepted == 1
+        return False
+
+    @staticmethod
     def _coerce_autonomy_task_id(task_id: str) -> Union[int, str]:
         if task_id.isdigit():
             try:
@@ -531,13 +545,15 @@ class CollaborationService:
         if signature == task.last_autonomy_dispatch_signature:
             return
 
-        if isinstance(payload_obj, AutonomyPatrolDispatch):
+        dispatch_result = (
             autonomy_client.post_patrol_plan(payload_obj)
-        else:
-            autonomy_client.post_tracking_plan(payload_obj)
+            if isinstance(payload_obj, AutonomyPatrolDispatch)
+            else autonomy_client.post_tracking_plan(payload_obj)
+        )
 
-        task.last_autonomy_dispatch_signature = signature
-        task_store.update_task(task)
+        if self._is_autonomy_dispatch_success(dispatch_result):
+            task.last_autonomy_dispatch_signature = signature
+            task_store.update_task(task)
 
     def _dispatch_optical_linkage_if_changed(self, task: TaskContext, task_status: int) -> None:
         target_batch_no = task.current_target_batch_no

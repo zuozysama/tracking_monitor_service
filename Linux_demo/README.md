@@ -43,3 +43,54 @@ TASK_ID=task-tracking-1001 bash Linux_demo/send_task_terminate.sh
 BASE_URL=http://0.0.0.0:80 TASK_ID=task-tracking-2001 bash Linux_demo/send_scene_tracking.sh
 ```
 
+
+## Direct set_plan Scripts
+
+These scripts POST directly to autonomy `set_plan`:
+- `send_set_plan_patrol.sh`
+- `send_set_plan_tracking.sh`
+- `send_set_plan_fixed_tracking.sh`
+- `send_set_plan_scene.sh` (patrol -> tracking)
+
+Usage:
+```bash
+# Keep env vars and address consistent with deployment side
+EXTERNAL_AUTONOMY_MODE=http \
+EXTERNAL_AUTONOMY_URL=172.16.10.104/api/v1/set_plan \
+bash Linux_demo/send_set_plan_patrol.sh
+
+EXTERNAL_AUTONOMY_MODE=http \
+EXTERNAL_AUTONOMY_URL=172.16.10.104/api/v1/set_plan \
+TASK_ID=task-direct-1001 TARGET_ID=target-001 TARGET_BATCH_NO=1 \
+bash Linux_demo/send_set_plan_tracking.sh
+
+EXTERNAL_AUTONOMY_MODE=http \
+EXTERNAL_AUTONOMY_URL=172.16.10.104/api/v1/set_plan \
+bash Linux_demo/send_set_plan_fixed_tracking.sh
+
+EXTERNAL_AUTONOMY_MODE=http \
+EXTERNAL_AUTONOMY_URL=172.16.10.104/api/v1/set_plan \
+bash Linux_demo/send_set_plan_scene.sh
+```
+
+Env used by these scripts:
+- `EXTERNAL_AUTONOMY_MODE` (default `http`)
+- `EXTERNAL_AUTONOMY_URL` (default `172.16.10.104/api/v1/set_plan`)
+- also supports `EXTERNAL_AUTONOMY_BASE_URL` as fallback
+
+Optional params:
+- patrol: `TASK_ID`, `MAX_SPEED`, `END_TIME`
+- tracking: `TASK_ID`, `TARGET_ID`, `TARGET_BATCH_NO`, `REL_RANGE_M`, `RELATIVE_BEARING_DEG`, `MAX_SPEED`
+- fixed-tracking: `TASK_ID`, `MAX_SPEED`
+- scene: `SLEEP_SEC`
+
+> Note: set_plan demo scripts have been moved to `Linux_demo/autonomy_demo/`.
+>
+> Use:
+> - `bash Linux_demo/autonomy_demo/send_set_plan_patrol.sh`
+> - `bash Linux_demo/autonomy_demo/send_set_plan_tracking.sh`
+> - `bash Linux_demo/autonomy_demo/send_set_plan_fixed_tracking.sh`
+> - `bash Linux_demo/autonomy_demo/send_set_plan_scene.sh`
+
+> Default endpoint in scripts is now `172.16.10.104:8000`.
+> You can still override it via `EXTERNAL_AUTONOMY_URL` (or `EXTERNAL_AUTONOMY_BASE_URL`).
