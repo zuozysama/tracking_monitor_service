@@ -156,10 +156,44 @@ class RealLjdssAdapter(DdsAdapter):
 
         outer = self
 
+        def _safe_text(value) -> str:
+            if isinstance(value, (bytes, bytearray)):
+                text = bytes(value).decode("utf-8", errors="ignore")
+            else:
+                text = str(value)
+            # SDKs may pass fixed-length C strings with trailing nulls/spaces.
+            return text.split("\x00", 1)[0].strip()
+
         class _DRListener(base_cls):
             def on_data_available(self, topic_name, type_name, sample, size, sample_info):
+                topic = "__unknown__"
+                type_name_text = "__unknown__"
+                sample_size = 0
                 try:
-                    if type_name != b"CSMXP_V3":
+                    topic = _safe_text(topic_name)
+                    type_name_text = _safe_text(type_name)
+                    try:
+                        sample_size = int(size)
+                    except Exception:
+                        sample_size = 0
+
+                    if type_name_text != "CSMXP_V3":
+                        outer._log_subscribe(
+                            topic=topic,
+                            decoded={
+                                "listener_skipped": True,
+                                "skip_reason": "type_name_mismatch",
+                                "expected_type_name": "CSMXP_V3",
+                                "actual_type_name": type_name_text,
+                                "actual_type_name_repr": repr(type_name),
+                            },
+                            src=-1,
+                            dst=-1,
+                            raw_hex="",
+                            body_hex="",
+                            type_name=type_name_text,
+                            sample_size=sample_size,
+                        )
                         return
 
                     sample_obj = cast(sample, POINTER(CSMXP_V3))
@@ -167,20 +201,37 @@ class RealLjdssAdapter(DdsAdapter):
 
                     head_size = CSMXP_V3_MSG_HEAD.size()
                     header = CSMXP_V3_MSG_HEAD()
-                    header.unpack(msg[0:head_size])
+                    try:
+                        header.unpack(msg[0:head_size])
+                    except Exception as exc:
+                        outer._log_subscribe(
+                            topic=topic,
+                            decoded={
+                                "listener_skipped": True,
+                                "skip_reason": "header_unpack_error",
+                                "error": str(exc),
+                                "msg_len": len(msg),
+                                "head_size": int(head_size),
+                                "head_hex_prefix": msg[: min(len(msg), head_size)].hex(),
+                            },
+                            src=int(sample_obj.contents.SRC),
+                            dst=int(sample_obj.contents.DST),
+                            raw_hex="",
+                            body_hex="",
+                            type_name=type_name_text,
+                            sample_size=sample_size,
+                        )
+                        return
 
                     total_len = int(getattr(header, "length", 0))
+                    len_fixup = "none"
                     if total_len <= head_size or total_len > len(msg):
-                        total_len = min(len(msg), int(size) if int(size) > 0 else len(msg))
+                        size_len = sample_size if sample_size > 0 else len(msg)
+                        total_len = min(len(msg), size_len)
+                        len_fixup = "from_size_or_msg_len"
 
                     raw_packet = msg[:total_len]
                     body = raw_packet[0:total_len]
-
-                    topic = (
-                        topic_name.decode("utf-8", errors="ignore")
-                        if isinstance(topic_name, (bytes, bytearray))
-                        else str(topic_name)
-                    )
 
                     decode_input = body
                     decoded = decode_topic_payload(topic, decode_input)
@@ -188,6 +239,19 @@ class RealLjdssAdapter(DdsAdapter):
                     if isinstance(decoded, dict):
                         decoded.setdefault("src", int(sample_obj.contents.SRC))
                         decoded.setdefault("dst", int(sample_obj.contents.DST))
+                        decoded.setdefault(
+                            "listener_debug",
+                            {
+                                "callback_topic": topic,
+                                "callback_type_name": type_name_text,
+                                "sample_size": sample_size,
+                                "msg_buffer_len": len(msg),
+                                "head_size": int(head_size),
+                                "header_length_field": int(getattr(header, "length", 0)),
+                                "final_total_len": int(total_len),
+                                "length_fixup": len_fixup,
+                            },
+                        )
 
                     outer._log_subscribe(
                         topic=topic,
@@ -196,16 +260,44 @@ class RealLjdssAdapter(DdsAdapter):
                         dst=int(sample_obj.contents.DST),
                         raw_hex=body.hex() if topic == OWNSHIP_NAVIGATION_TOPIC else raw_packet.hex(),
                         body_hex=body.hex(),
-                        type_name=type_name.decode("utf-8", errors="ignore")
-                        if isinstance(type_name, (bytes, bytearray))
-                        else str(type_name),
-                        sample_size=int(size),
+                        type_name=type_name_text,
+                        sample_size=sample_size,
                     )
 
                     handlers = outer._sub_handlers.get(topic, [])
                     for handler in handlers:
-                        handler(decoded)
+                        try:
+                            handler(decoded)
+                        except Exception as exc:
+                            outer._log_subscribe(
+                                topic=topic,
+                                decoded={
+                                    "listener_handler_error": True,
+                                    "handler_name": getattr(handler, "__name__", "<anonymous>"),
+                                    "error": str(exc),
+                                },
+                                src=int(sample_obj.contents.SRC),
+                                dst=int(sample_obj.contents.DST),
+                                raw_hex="",
+                                body_hex="",
+                                type_name=type_name_text,
+                                sample_size=sample_size,
+                            )
                 except Exception as exc:
+                    outer._log_subscribe(
+                        topic=topic,
+                        decoded={
+                            "listener_exception": True,
+                            "error": str(exc),
+                            "type_name_seen": type_name_text,
+                        },
+                        src=-1,
+                        dst=-1,
+                        raw_hex="",
+                        body_hex="",
+                        type_name=type_name_text,
+                        sample_size=sample_size,
+                    )
                     outer._log(topic="listener", payload={}, adapter="real-listener-error", reason=str(exc))
 
         self._dr_listener = _DRListener()

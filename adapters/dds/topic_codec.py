@@ -861,45 +861,37 @@ def decode_topic_payload(topic: str, body: bytes) -> dict:
         }
 
     if topic == TARGET_PERCEPTION_TOPIC:
-        common_offset, common_ts = _parse_common_header(body)
-        payload = body[common_offset:] if common_offset else body
+        def _decode_target_payload_frame(frame: bytes) -> tuple[dict | None, str | None, int]:
+            common_offset, common_ts = _parse_common_header(frame)
+            payload = frame[common_offset:] if common_offset else frame
 
-        if len(payload) < 2:
-            return {
-                "raw_hex": body.hex(),
-                "decode_error": f"target payload too short: got {len(payload)} bytes, need at least 2",
-            }
+            if len(payload) < 2:
+                return None, f"target payload too short: got {len(payload)} bytes, need at least 2", common_offset
 
-        target_count = struct.unpack(">H", payload[:2])[0]
+            target_count = struct.unpack(">H", payload[:2])[0]
 
-        entry_fmt_v2 = ">HHHIHHHHHiiHBBIBBB40sHHHBHH"
-        entry_size_v2 = struct.calcsize(entry_fmt_v2)  # 90
-        expected_len_v2 = 2 + target_count * entry_size_v2
+            entry_fmt_v2 = ">HHHIHHHHHiiHBBIBBB40sHHHBHH"
+            entry_size_v2 = struct.calcsize(entry_fmt_v2)  # 90
+            expected_len_v2 = 2 + target_count * entry_size_v2
 
-        entry_fmt_legacy = ">HHIHHHHHiiHBBIBBB40sHHHBHH"
-        entry_size_legacy = struct.calcsize(entry_fmt_legacy)  # 88
-        expected_len_legacy = 4 + target_count * entry_size_legacy
+            use_v2_layout = len(payload) == expected_len_v2
+            if not use_v2_layout:
+                return (
+                    None,
+                    (
+                        f"target payload length mismatch: got {len(payload)} bytes, "
+                        f"need exactly {expected_len_v2} for {target_count} targets (2 + N*90)"
+                    ),
+                    common_offset,
+                )
 
-        use_v2_layout = len(payload) >= expected_len_v2
-        use_legacy_layout = len(payload) >= expected_len_legacy
-        if not use_v2_layout and not use_legacy_layout:
-            return {
-                "raw_hex": body.hex(),
-                "decode_error": (
-                    f"target payload length mismatch: got {len(payload)} bytes, "
-                    f"need at least {min(expected_len_v2, expected_len_legacy)} for {target_count} targets"
-                ),
-            }
+            entry_fmt = entry_fmt_v2
+            entry_size = entry_size_v2
 
-        entry_fmt = entry_fmt_v2 if use_v2_layout else entry_fmt_legacy
-        entry_size = entry_size_v2 if use_v2_layout else entry_size_legacy
-        legacy_source_platform_id = struct.unpack(">H", payload[2:4])[0] if not use_v2_layout else 0
-
-        targets = []
-        offset = 2 if use_v2_layout else 4
-        for _i in range(target_count):
-            chunk = payload[offset : offset + entry_size]
-            if use_v2_layout:
+            targets = []
+            offset = 2
+            for _i in range(target_count):
+                chunk = payload[offset : offset + entry_size]
                 (
                     source_platform_id,
                     batch_no,
@@ -927,78 +919,65 @@ def decode_topic_payload(topic: str, body: bytes) -> dict:
                     rcs_x10,
                     custom2,
                 ) = struct.unpack(entry_fmt, chunk)
-            else:
-                (
-                    batch_no,
-                    bearing_x10,
-                    distance_m,
-                    height_x10,
-                    abs_speed_x10,
-                    abs_heading_x10,
-                    rel_speed_x10,
-                    rel_heading_x10,
-                    lon_raw,
-                    lat_raw,
-                    qt_value,
-                    coord_sys,
-                    is_simulated,
-                    target_ts_raw,
-                    position_attr,
-                    target_type_code,
-                    military_civil_attr,
-                    target_name_raw,
-                    target_len_x10,
-                    target_width_x10,
-                    target_height_x10,
-                    threat_level,
-                    rcs_x10,
-                    custom2,
-                ) = struct.unpack(entry_fmt, chunk)
-                source_platform_id = legacy_source_platform_id
 
-            target_name = _decode_gb2312_cstr(target_name_raw)
-            target_generated_ts = _format_target_generated_ts(common_ts, int(target_ts_raw))
+                target_name = _decode_gb2312_cstr(target_name_raw)
+                target_generated_ts = _format_target_generated_ts(common_ts, int(target_ts_raw))
 
-            targets.append(
+                targets.append(
+                    {
+                        "source_platform_id": int(source_platform_id),
+                        "target_id": f"target-{int(batch_no)}",
+                        "target_batch_no": int(batch_no),
+                        "target_bearing_deg": float(bearing_x10) / 10.0,
+                        "target_distance_m": float(distance_m),
+                        "target_height_m": float(height_x10) / 10.0,
+                        "target_absolute_speed_mps": float(abs_speed_x10) / 10.0,
+                        "target_absolute_heading_deg": float(abs_heading_x10) / 10.0,
+                        "target_relative_speed_mps": float(rel_speed_x10) / 10.0,
+                        "target_relative_heading_deg": float(rel_heading_x10) / 10.0,
+                        "target_longitude": float(lon_raw) * NAV_GEO_LSB_DEG,
+                        "target_latitude": float(lat_raw) * NAV_GEO_LSB_DEG,
+                        "target_qt_value_m": int(qt_value) if qt_value != 0xFFFF else None,
+                        "coord_sys": int(coord_sys),
+                        "is_simulated": int(is_simulated),
+                        "target_generated_timestamp_raw": int(target_ts_raw),
+                        "target_generated_timestamp": target_generated_ts,
+                        "target_position_attr": int(position_attr),
+                        "target_type_code": int(target_type_code),
+                        "military_civil_attr": int(military_civil_attr),
+                        "target_name": target_name or None,
+                        "target_length_m": float(target_len_x10) / 10.0,
+                        "target_width_m": float(target_width_x10) / 10.0,
+                        "target_height_size_m": float(target_height_x10) / 10.0,
+                        "threat_level": None if int(threat_level) == 0xFF else int(threat_level),
+                        "rcs_m2": float(rcs_x10) / 10.0 if int(rcs_x10) != 0xFFFF else None,
+                        "custom2": None if int(custom2) == 0xFFFF else int(custom2),
+                        "timestamp": common_ts or _iso_utc_now(),
+                        "active": True,
+                    }
+                )
+                offset += entry_size
+
+            return (
                 {
-                    "source_platform_id": int(source_platform_id),
-                    "target_id": f"target-{int(batch_no)}",
-                    "target_batch_no": int(batch_no),
-                    "target_bearing_deg": float(bearing_x10) / 10.0,
-                    "target_distance_m": float(distance_m),
-                    "target_height_m": float(height_x10) / 10.0,
-                    "target_absolute_speed_mps": float(abs_speed_x10) / 10.0,
-                    "target_absolute_heading_deg": float(abs_heading_x10) / 10.0,
-                    "target_relative_speed_mps": float(rel_speed_x10) / 10.0,
-                    "target_relative_heading_deg": float(rel_heading_x10) / 10.0,
-                    "target_longitude": float(lon_raw) * NAV_GEO_LSB_DEG,
-                    "target_latitude": float(lat_raw) * NAV_GEO_LSB_DEG,
-                    "target_qt_value_m": int(qt_value) if qt_value != 0xFFFF else None,
-                    "coord_sys": int(coord_sys),
-                    "is_simulated": int(is_simulated),
-                    "target_generated_timestamp_raw": int(target_ts_raw),
-                    "target_generated_timestamp": target_generated_ts,
-                    "target_position_attr": int(position_attr),
-                    "target_type_code": int(target_type_code),
-                    "military_civil_attr": int(military_civil_attr),
-                    "target_name": target_name or None,
-                    "target_length_m": float(target_len_x10) / 10.0,
-                    "target_width_m": float(target_width_x10) / 10.0,
-                    "target_height_size_m": float(target_height_x10) / 10.0,
-                    "threat_level": None if int(threat_level) == 0xFF else int(threat_level),
-                    "rcs_m2": float(rcs_x10) / 10.0 if int(rcs_x10) != 0xFFFF else None,
-                    "custom2": None if int(custom2) == 0xFFFF else int(custom2),
-                    "timestamp": common_ts or _iso_utc_now(),
-                    "active": True,
-                }
+                    "source_platform_id": int(targets[0]["source_platform_id"]) if targets else 0,
+                    "target_count": int(target_count),
+                    "entry_size": entry_size,
+                    "targets": targets,
+                },
+                None,
+                common_offset,
             )
-            offset += entry_size
+
+        direct_result, direct_error, _direct_common_offset = _decode_target_payload_frame(body)
+        if direct_result:
+            direct_result["input_layout"] = "target_payload"
+            direct_result["input_raw_len"] = len(body)
+            return direct_result
 
         return {
-            "source_platform_id": int(targets[0]["source_platform_id"]) if targets else int(legacy_source_platform_id),
-            "target_count": int(target_count),
-            "entry_size": entry_size,
-            "targets": targets,
+            "raw_hex": body.hex(),
+            "decode_error": direct_error or "target payload decode failed",
         }
 
     if topic == TASK_UPDATE_TOPIC:

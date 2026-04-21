@@ -150,7 +150,7 @@ class TopicCodecDecodeTestCase(unittest.TestCase):
         self.assertIn("decode_error", decoded)
         self.assertIn("need at least 35", decoded["decode_error"])
 
-    def test_decode_target_perception_doc_format(self):
+    def test_decode_target_perception_legacy_doc_format_byte_compatible(self):
         name = "TARGET-A".encode("gb2312")
         name = name + b"\x00" * (40 - len(name))
         entry = struct.pack(
@@ -196,7 +196,7 @@ class TopicCodecDecodeTestCase(unittest.TestCase):
         self.assertEqual(t0["target_generated_timestamp_raw"], 123456)
         self.assertTrue((t0.get("target_generated_timestamp") or "").endswith("Z"))
 
-    def test_decode_target_perception_doc_format_u16_target_type(self):
+    def test_decode_target_perception_legacy_u16_target_type_rejected(self):
         name = "TARGET-B".encode("gb2312")
         name = name + b"\x00" * (40 - len(name))
         # target_type_code encoded as uint16 (compat mode)
@@ -228,15 +228,11 @@ class TopicCodecDecodeTestCase(unittest.TestCase):
         body = _common_header() + struct.pack(">HH", 1, 2001) + entry
 
         decoded = decode_topic_payload(TARGET_PERCEPTION_TOPIC, body)
-        self.assertEqual(decoded["target_count"], 1)
-        t0 = decoded["targets"][0]
-        self.assertEqual(t0["target_batch_no"], 36)
-        self.assertEqual(t0["target_type_code"], 400)
-        self.assertEqual(t0["military_civil_attr"], 2)
-        self.assertEqual(t0["target_generated_timestamp_raw"], 223344)
-        self.assertTrue((t0.get("target_generated_timestamp") or "").endswith("Z"))
+        self.assertIn("decode_error", decoded)
+        self.assertIn("need exactly", decoded["decode_error"])
+        self.assertIn("2 + N*90", decoded["decode_error"])
 
-    def test_decode_target_perception_doc_format_u16_target_type_case2(self):
+    def test_decode_target_perception_legacy_u16_target_type_case2_rejected(self):
         name = "TARGET-U16".encode("gb2312")
         name = name + b"\x00" * (40 - len(name))
         entry = struct.pack(
@@ -266,11 +262,34 @@ class TopicCodecDecodeTestCase(unittest.TestCase):
         )
         body = _common_header() + struct.pack(">HH", 1, 2001) + entry
         decoded = decode_topic_payload(TARGET_PERCEPTION_TOPIC, body)
-        self.assertEqual(decoded["target_count"], 1)
-        t0 = decoded["targets"][0]
-        self.assertEqual(t0["target_type_code"], 400)
-        self.assertEqual(t0["target_generated_timestamp_raw"], 1234500)
-        self.assertIsNotNone(t0["target_generated_timestamp"])
+        self.assertIn("decode_error", decoded)
+        self.assertIn("need exactly", decoded["decode_error"])
+        self.assertIn("2 + N*90", decoded["decode_error"])
+
+    def test_decode_target_perception_with_outer_v3_header_rejected(self):
+        body = encode_topic_payload(
+            TARGET_PERCEPTION_TOPIC,
+            {
+                "protocol_type": 0,
+                "protocol_version": 1,
+                "msg_type": 1,
+                "msg_seq": 7,
+                "reserve": 0,
+                "timestamp_0p1ms": 123456,
+                "targets": [
+                    {
+                        "source_platform_id": 2001,
+                        "target_batch_no": 101,
+                        "target_bearing_deg": 12.3,
+                        "target_distance_m": 1500,
+                        "target_name": "TARGET-1",
+                    }
+                ],
+            },
+        )
+        decoded = decode_topic_payload(TARGET_PERCEPTION_TOPIC, (b"\xAA" * 16) + body)
+        self.assertIn("decode_error", decoded)
+        self.assertIn("2 + N*90", decoded["decode_error"])
 
     def test_encode_task_update_21_plus_100(self):
         body = encode_topic_payload(
