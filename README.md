@@ -152,6 +152,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\run_pub_test.ps1
 ### 1. 重置 mock 态势
 
 ```bash
+# debug-only endpoint; do not use in normal business flow
 curl -X POST http://127.0.0.1:8080/mock/dds/reset
 ```
 
@@ -412,7 +413,6 @@ Invoke-RestMethod `
 - 将 mock 日志持久化到 Redis 或数据库
 - 增加接口测试用例与任务场景回归测试
 - 增加 Dockerfile、启动脚本和麒麟系统部署说明
-
 
 
 

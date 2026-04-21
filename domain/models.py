@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -311,6 +311,10 @@ class TargetState(CompatModel):
 
 
 class UpdateTargetsRequest(CompatModel):
+    revision: Optional[int] = Field(default=None, ge=1)
+    is_full_snapshot: Optional[bool] = None
+    source_id: Optional[str] = None
+    sync_mode: Optional[Literal["replace", "merge"]] = None
     targets: List[TargetState]
 
 
@@ -320,6 +324,10 @@ class MockDdsOwnshipRequest(CompatModel):
 
 class MockDdsTargetsRequest(CompatModel):
     target_count: int
+    revision: Optional[int] = Field(default=None, ge=1)
+    is_full_snapshot: Optional[bool] = None
+    source_id: Optional[str] = None
+    sync_mode: Optional[Literal["replace", "merge"]] = None
     targets: List[TargetState]
 
 

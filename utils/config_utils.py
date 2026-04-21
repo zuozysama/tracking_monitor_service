@@ -134,3 +134,10 @@ def get_dds_focus_platform_id() -> int:
         return int(raw)
     except Exception:
         return 1001
+
+
+def get_dds_target_sync_mode() -> str:
+    raw = os.getenv("DDS_TARGET_SYNC_MODE", "replace").strip().lower()
+    if raw in {"replace", "merge"}:
+        return raw
+    return "replace"
