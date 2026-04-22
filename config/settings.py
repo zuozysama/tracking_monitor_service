@@ -133,6 +133,48 @@ def _get_env_float(name: str) -> Optional[float]:
         return None
 
 
+def _parse_target_type_order(raw: str) -> list[int]:
+    normalized = raw.replace(">", ",").replace(";", ",").replace("|", ",")
+    tokens = [part.strip() for part in normalized.split(",") if part.strip()]
+    result: list[int] = []
+    seen: set[int] = set()
+    for token in tokens:
+        try:
+            code = int(token)
+        except Exception:
+            continue
+        if code in seen:
+            continue
+        seen.add(code)
+        result.append(code)
+    return result
+
+
+def _build_target_type_rank_scores(order: list[int]) -> Dict[int, float]:
+    size = len(order)
+    return {code: float(size - idx) for idx, code in enumerate(order)}
+
+
+def _apply_tracking_filter_env_overrides(merged: Dict[str, Any]) -> Dict[str, Any]:
+    result = dict(merged)
+    tracking = dict(result.get("tracking") or {})
+    filter_cfg = dict(tracking.get("filter") or {})
+
+    target_type_order_raw = _get_env_str("TRACKING_TARGET_TYPE_PRIORITY_ORDER")
+    if target_type_order_raw is not None:
+        order = _parse_target_type_order(target_type_order_raw)
+        if order:
+            filter_cfg["target_type_value_scores"] = _build_target_type_rank_scores(order)
+
+    default_other_value = _get_env_float("TRACKING_TARGET_TYPE_OTHER_VALUE_SCORE")
+    if default_other_value is not None:
+        filter_cfg["default_target_type_value_score"] = default_other_value
+
+    tracking["filter"] = filter_cfg
+    result["tracking"] = tracking
+    return result
+
+
 def _apply_external_service_env_overrides(merged: Dict[str, Any]) -> Dict[str, Any]:
     result = dict(merged)
     external_services = dict(result.get("external_services") or {})
@@ -165,6 +207,7 @@ def load_settings(config_file: str = "config/service_settings.yaml") -> ServiceC
     default_dict = _default_settings_dict()
     yaml_dict = _load_yaml_dict(config_path)
     merged = _deep_merge(default_dict, yaml_dict)
+    merged = _apply_tracking_filter_env_overrides(merged)
     merged = _apply_external_service_env_overrides(merged)
     return ServiceConfig(**merged)
 

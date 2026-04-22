@@ -1,5 +1,6 @@
 import unittest
 from datetime import datetime, timezone
+import time
 
 from fastapi.testclient import TestClient
 
@@ -15,6 +16,70 @@ class ApiContractTestCase(unittest.TestCase):
         situation_store.reset()
         collaboration_store.reset()
         self.client = TestClient(app)
+
+    def _post_ownship(self):
+        return self.client.post(
+            "/mock/dds/navigation",
+            json={
+                "platform_id": 1001,
+                "speed_mps": 6.2,
+                "heading_deg": 90.0,
+                "longitude": 121.5000000,
+                "latitude": 31.2200000,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+
+    def _post_targets(self, targets: list[dict]):
+        return self.client.post(
+            "/mock/dds/perception",
+            json={
+                "target_count": len(targets),
+                "sync_mode": "replace",
+                "source_id": "test-api-contract",
+                "targets": targets,
+            },
+        )
+
+    @staticmethod
+    def _target(
+        target_id: str,
+        batch_no: int,
+        longitude: float,
+        latitude: float,
+        threat_level: int,
+        target_position_attr: int,
+        target_type_code: int = 106,
+        target_length_m: float = 50.0,
+    ) -> dict:
+        return {
+            "source_platform_id": 2001,
+            "target_id": target_id,
+            "target_batch_no": batch_no,
+            "target_bearing_deg": 35.0,
+            "target_distance_m": 3000.0,
+            "target_absolute_speed_mps": 6.2,
+            "target_absolute_heading_deg": 90.0,
+            "target_longitude": longitude,
+            "target_latitude": latitude,
+            "target_type_code": target_type_code,
+            "target_position_attr": target_position_attr,
+            "target_length_m": target_length_m,
+            "military_civil_attr": 1,
+            "enemy_friend_attr": 1,
+            "target_name": target_id,
+            "threat_level": threat_level,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "active": True,
+        }
+
+    def _wait_until(self, predicate, timeout_sec: float = 3.0, interval_sec: float = 0.1):
+        deadline = time.time() + timeout_sec
+        while time.time() < deadline:
+            if predicate():
+                return True
+            time.sleep(interval_sec)
+        return False
 
     def test_healthz_contract(self):
         resp = self.client.get("/api/v1/healthz")
@@ -321,6 +386,195 @@ class ApiContractTestCase(unittest.TestCase):
         self.assertIn("adapter_class", body["data"])
         self.assertIn("adapter_runtime", body["data"])
         self.assertIn("log_stats", body["data"])
+
+    def test_tracking_default_surface_threat_filter_and_manual_selection_flow(self):
+        self.assertEqual(self._post_ownship().status_code, 200)
+        targets = [
+            # should be filtered out: not surface target (target_position_attr != 3)
+            self._target("target-001", 1, 121.5100, 31.2210, threat_level=5, target_position_attr=2),
+            # should be filtered out: threat_level < 2
+            self._target("target-002", 2, 121.5120, 31.2210, threat_level=1, target_position_attr=3),
+            # valid surface targets
+            self._target("target-003", 3, 121.5350, 31.2220, threat_level=4, target_position_attr=3),
+            self._target("target-004", 4, 121.5220, 31.2210, threat_level=4, target_position_attr=3),
+            self._target("target-005", 5, 121.5050, 31.2205, threat_level=3, target_position_attr=3),
+        ]
+        self.assertEqual(self._post_targets(targets).status_code, 200)
+
+        task_id = "task-manual-default-filter-001"
+        create_resp = self.client.post(
+            "/api/v1/tasks",
+            json={
+                "task_id": task_id,
+                "task_type": "escort",
+                "task_area": {
+                    "area_type": "polygon",
+                    "points": [
+                        {"longitude": 121.48, "latitude": 31.20},
+                        {"longitude": 121.56, "latitude": 31.20},
+                        {"longitude": 121.56, "latitude": 31.26},
+                        {"longitude": 121.48, "latitude": 31.26},
+                    ],
+                },
+                "end_condition": {"duration_sec": 120},
+            },
+        )
+        self.assertEqual(create_resp.status_code, 200)
+
+        result_resp = self.client.get(f"/api/v1/{task_id}/result")
+        self.assertEqual(result_resp.status_code, 200)
+        # Same threat level between target-003 and target-004, should pick the nearer target-004.
+        self.assertEqual(result_resp.json()["data"]["current_target_id"], "target-004")
+
+        def _has_manual_selection_request() -> bool:
+            req_resp = self.client.get("/mock/collaboration/manual-selection/requests")
+            if req_resp.status_code != 200:
+                return False
+            items = req_resp.json()["data"]["items"]
+            return any(item.get("task_id") == task_id for item in items)
+
+        self.assertTrue(self._wait_until(_has_manual_selection_request))
+        req_items = self.client.get("/mock/collaboration/manual-selection/requests").json()["data"]["items"]
+        task_items = [x for x in req_items if x.get("task_id") == task_id]
+        self.assertTrue(task_items)
+        latest_req = task_items[-1]
+        candidate_ids = [item.get("target_id") for item in latest_req.get("candidate_targets", [])]
+        # Only surface targets with threat>=2 should remain.
+        self.assertEqual(candidate_ids, ["target-004", "target-003", "target-005"])
+
+        # Simulate command-side explicit selection and verify target switch.
+        feedback_resp = self.client.post(
+            "/api/v1/manual_selection/feedback",
+            json={
+                "task_id": task_id,
+                "selected_target_id": "target-005",
+                "feedback_time": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        self.assertEqual(feedback_resp.status_code, 200)
+
+        switched_result = self.client.get(f"/api/v1/{task_id}/result").json()["data"]
+        self.assertEqual(switched_result["current_target_id"], "target-005")
+
+    def test_tracking_default_surface_threat_filter_single_target_no_manual_selection(self):
+        self.assertEqual(self._post_ownship().status_code, 200)
+        targets = [
+            self._target("target-011", 11, 121.5110, 31.2210, threat_level=1, target_position_attr=3),
+            self._target("target-012", 12, 121.5120, 31.2210, threat_level=5, target_position_attr=2),
+            self._target("target-013", 13, 121.5130, 31.2210, threat_level=4, target_position_attr=3),
+        ]
+        self.assertEqual(self._post_targets(targets).status_code, 200)
+
+        task_id = "task-manual-default-filter-002"
+        create_resp = self.client.post(
+            "/api/v1/tasks",
+            json={
+                "task_id": task_id,
+                "task_type": "escort",
+                "task_area": {
+                    "area_type": "polygon",
+                    "points": [
+                        {"longitude": 121.48, "latitude": 31.20},
+                        {"longitude": 121.56, "latitude": 31.20},
+                        {"longitude": 121.56, "latitude": 31.26},
+                        {"longitude": 121.48, "latitude": 31.26},
+                    ],
+                },
+                "end_condition": {"duration_sec": 120},
+            },
+        )
+        self.assertEqual(create_resp.status_code, 200)
+
+        result_resp = self.client.get(f"/api/v1/{task_id}/result")
+        self.assertEqual(result_resp.status_code, 200)
+        self.assertEqual(result_resp.json()["data"]["current_target_id"], "target-013")
+
+        req_items = self.client.get("/mock/collaboration/manual-selection/requests").json()["data"]["items"]
+        task_items = [x for x in req_items if x.get("task_id") == task_id]
+        self.assertEqual(task_items, [])
+
+    def test_task_debug_candidates_endpoint_contains_rank_key_fields(self):
+        self.assertEqual(self._post_ownship().status_code, 200)
+        targets = [
+            # Same threat/value, longer length should rank ahead even if farther.
+            self._target("target-021", 21, 121.5220, 31.2210, threat_level=4, target_position_attr=3, target_length_m=45.0),
+            self._target("target-022", 22, 121.5300, 31.2220, threat_level=4, target_position_attr=3, target_length_m=90.0),
+        ]
+        self.assertEqual(self._post_targets(targets).status_code, 200)
+
+        task_id = "task-debug-candidates-001"
+        create_resp = self.client.post(
+            "/api/v1/tasks",
+            json={
+                "task_id": task_id,
+                "task_type": "escort",
+                "task_area": {
+                    "area_type": "polygon",
+                    "points": [
+                        {"longitude": 121.48, "latitude": 31.20},
+                        {"longitude": 121.56, "latitude": 31.20},
+                        {"longitude": 121.56, "latitude": 31.26},
+                        {"longitude": 121.48, "latitude": 31.26},
+                    ],
+                },
+                "end_condition": {"duration_sec": 120},
+            },
+        )
+        self.assertEqual(create_resp.status_code, 200)
+
+        debug_resp = self.client.get(f"/api/v1/tasks/{task_id}/debug/candidates")
+        self.assertEqual(debug_resp.status_code, 200)
+        body = debug_resp.json()
+        self.assertEqual(body["code"], 200)
+        self.assertEqual(body["data"]["task_id"], task_id)
+        self.assertGreaterEqual(body["data"]["candidate_count"], 1)
+        first = body["data"]["candidates"][0]
+        self.assertIn("target_id", first)
+        self.assertIn("target_length_m", first)
+        self.assertIn("rank_threat_level", first)
+        self.assertIn("rank_value_score", first)
+        self.assertIn("rank_target_length_m", first)
+        self.assertIn("rank_distance_m", first)
+        self.assertIn("sort_key", first)
+        self.assertEqual(body["data"]["candidates"][0]["target_id"], "target-022")
+
+    def test_value_score_target_type_priority_order(self):
+        self.assertEqual(self._post_ownship().status_code, 200)
+        targets = [
+            # Same threat/length; rank should follow target_type_code priority: 106 > 105 > 104 > 103 > others.
+            self._target("target-031", 31, 121.5500, 31.2250, threat_level=4, target_position_attr=3, target_type_code=106, target_length_m=50.0),
+            self._target("target-032", 32, 121.5010, 31.2205, threat_level=4, target_position_attr=3, target_type_code=105, target_length_m=50.0),
+            self._target("target-033", 33, 121.5020, 31.2205, threat_level=4, target_position_attr=3, target_type_code=104, target_length_m=50.0),
+            self._target("target-034", 34, 121.5030, 31.2205, threat_level=4, target_position_attr=3, target_type_code=103, target_length_m=50.0),
+            self._target("target-035", 35, 121.5008, 31.2204, threat_level=4, target_position_attr=3, target_type_code=107, target_length_m=50.0),
+        ]
+        self.assertEqual(self._post_targets(targets).status_code, 200)
+
+        task_id = "task-value-priority-001"
+        create_resp = self.client.post(
+            "/api/v1/tasks",
+            json={
+                "task_id": task_id,
+                "task_type": "escort",
+                "task_area": {
+                    "area_type": "polygon",
+                    "points": [
+                        {"longitude": 121.48, "latitude": 31.20},
+                        {"longitude": 121.56, "latitude": 31.20},
+                        {"longitude": 121.56, "latitude": 31.26},
+                        {"longitude": 121.48, "latitude": 31.26},
+                    ],
+                },
+                "end_condition": {"duration_sec": 120},
+            },
+        )
+        self.assertEqual(create_resp.status_code, 200)
+
+        debug_resp = self.client.get(f"/api/v1/tasks/{task_id}/debug/candidates")
+        self.assertEqual(debug_resp.status_code, 200)
+        candidates = debug_resp.json()["data"]["candidates"]
+        candidate_ids = [item.get("target_id") for item in candidates[:5]]
+        self.assertEqual(candidate_ids, ["target-031", "target-032", "target-033", "target-034", "target-035"])
 
 
 if __name__ == "__main__":

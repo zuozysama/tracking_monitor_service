@@ -100,6 +100,27 @@ class CollaborationService:
             payload["expected_speed"] = task.tracking_plan_output.expected_speed or 0
         self._publish_dds(TASK_UPDATE_TOPIC, payload)
 
+    @staticmethod
+    def _safe_float(value, default: float = 0.0) -> float:
+        try:
+            if value is None:
+                return default
+            return float(value)
+        except Exception:
+            return default
+
+    def _candidate_rank_key(self, item: dict) -> tuple[float, float, float, float]:
+        # Must stay consistent with algorithms.target_filter._build_rank_key:
+        # threat(desc) -> value(desc) -> length(desc) -> distance(asc)
+        threat_level = int(self._safe_float(item.get("rank_threat_level", item.get("threat_level")), 0.0))
+        value_score = self._safe_float(item.get("rank_value_score", item.get("value_score")), 0.0)
+        target_length_m = self._safe_float(item.get("rank_target_length_m", item.get("target_length_m")), 0.0)
+        distance_raw = item.get("rank_distance_m")
+        if distance_raw is None:
+            distance_raw = item.get("distance_m")
+        distance_m = self._safe_float(distance_raw, float("inf")) if distance_raw is not None else float("inf")
+        return (-float(threat_level), -value_score, -target_length_m, distance_m)
+
     def _build_manual_selection_candidates(self, task: TaskContext) -> list[TargetInfo]:
         candidates = task.candidate_targets or []
         top_candidates = candidates[:4]
@@ -111,6 +132,9 @@ class CollaborationService:
                     target_id=item.get("target_id"),
                     target_batch_no=item.get("target_batch_no"),
                     target_type_code=item.get("target_type_code"),
+                    target_position_attr=item.get("target_position_attr"),
+                    target_length_m=item.get("target_length_m"),
+                    threat_level=item.get("threat_level"),
                     target_name=item.get("target_name") or item.get("target_id"),
                     enemy_friend_attr=item.get("enemy_friend_attr"),
                     military_civil_attr=item.get("military_civil_attr"),
@@ -174,7 +198,7 @@ class CollaborationService:
         task.manual_selection_pending = False
         task.manual_selection_last_countdown_sec = None
         task.update_time = now
-        print(f"[ManualSelection] task={task.task_id} timeout reached, keep highest-score target")
+        print(f"[ManualSelection] task={task.task_id} timeout reached, keep highest-rank target")
         task_store.update_task(task)
 
     def _build_manual_switch_candidates(self, task: TaskContext) -> list[TargetInfo]:
@@ -182,12 +206,12 @@ class CollaborationService:
         if not candidates or not task.current_target_id:
             return []
 
-        current_score = None
+        current_key = None
         for item in candidates:
             if item.get("target_id") == task.current_target_id:
-                current_score = float(item.get("total_score") or 0.0)
+                current_key = self._candidate_rank_key(item)
                 break
-        if current_score is None:
+        if current_key is None:
             return []
 
         higher: list[TargetInfo] = []
@@ -195,14 +219,17 @@ class CollaborationService:
             target_id = item.get("target_id")
             if target_id == task.current_target_id:
                 continue
-            score = float(item.get("total_score") or 0.0)
-            if score <= current_score:
+            candidate_key = self._candidate_rank_key(item)
+            if candidate_key >= current_key:
                 continue
             higher.append(
                 TargetInfo(
                     target_id=target_id,
                     target_batch_no=item.get("target_batch_no"),
                     target_type_code=item.get("target_type_code"),
+                    target_position_attr=item.get("target_position_attr"),
+                    target_length_m=item.get("target_length_m"),
+                    threat_level=item.get("threat_level"),
                     target_name=item.get("target_name") or target_id,
                     enemy_friend_attr=item.get("enemy_friend_attr"),
                     military_civil_attr=item.get("military_civil_attr"),

@@ -81,6 +81,47 @@ class TopicCodecDecodeTestCase(unittest.TestCase):
         self.assertEqual(len(bytes.fromhex(decoded.get("raw_hex", ""))), 35)
         self.assertTrue(str(decoded["timestamp"]).endswith("Z"))
 
+    def test_encode_ownship_timestamp_millisecond_accepts_ms_value(self):
+        body = encode_topic_payload(
+            OWNSHIP_NAVIGATION_TOPIC,
+            {
+                "timestamp_sec": 1700000000,
+                "timestamp_millisecond": 123.456789,
+            },
+        )
+        _pt, _ver, _len, _mt, _seq, _reserve, ts_sec, ts_sub = struct.unpack(">IBHBIBII", body[:21])
+        self.assertEqual(ts_sec, 1700000000)
+        self.assertEqual(ts_sub, 123456789)
+
+    def test_encode_ownship_timestamp_millisecond_raw_clamped_to_spec(self):
+        body = encode_topic_payload(
+            OWNSHIP_NAVIGATION_TOPIC,
+            {
+                "timestamp_sec": 1700000000,
+                "timestamp_millisecond_raw": 2_000_000_000,
+            },
+        )
+        _pt, _ver, _len, _mt, _seq, _reserve, ts_sec, ts_sub = struct.unpack(">IBHBIBII", body[:21])
+        self.assertEqual(ts_sec, 1700000000)
+        self.assertEqual(ts_sub, 999_999_999)
+
+    def test_decode_ownship_doc90_clamps_timestamp_millisecond_raw_to_spec(self):
+        header = struct.pack(
+            ">IBHBIBII",
+            0,           # protocol_type
+            1,           # version
+            90,          # packet_len
+            1,           # msg_type
+            1,           # msg_seq
+            0,           # reserve
+            1700000000,  # timestamp_sec
+            2_000_000_000,
+        )
+        body = header + bytes(69)
+        decoded = decode_topic_payload(OWNSHIP_NAVIGATION_TOPIC, body)
+        self.assertEqual(decoded["timestamp_millisecond_raw"], 999_999_999)
+        self.assertAlmostEqual(decoded["timestamp_millisecond"], 999.999999, places=6)
+
     def test_encode_target_perception_21_plus_2_plus_nx90(self):
         body = encode_topic_payload(
             TARGET_PERCEPTION_TOPIC,

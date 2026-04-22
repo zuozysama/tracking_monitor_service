@@ -165,6 +165,7 @@ class TrackingService:
             max_target_range_m=get_tracking_max_target_range_m(),
             identity_weights=get_tracking_filter_identity_weights(),
             current_target_id=task.current_target_id,
+            apply_default_surface_filter=True,
         )
 
         task.candidate_targets = debug_candidates
@@ -182,6 +183,7 @@ class TrackingService:
                 max_target_range_m=get_tracking_max_target_range_m(),
                 identity_weights=get_tracking_filter_identity_weights(),
                 current_target_id=task.current_target_id,
+                apply_default_surface_filter=True,
             )
             task.candidate_targets = relaxed_debug_candidates
 

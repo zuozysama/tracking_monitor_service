@@ -56,6 +56,8 @@ class TargetInfo(CompatModel):
     target_id: Optional[str] = None
     target_batch_no: Optional[int] = None
     target_type_code: Optional[int] = None
+    target_position_attr: Optional[int] = None
+    target_length_m: Optional[float] = Field(default=None, ge=0.0)
     threat_level: Optional[int] = None
     target_name: Optional[str] = None
     enemy_friend_attr: Optional[int] = None
@@ -70,6 +72,10 @@ class TargetInfo(CompatModel):
             data["target_batch_no"] = data["batch_id"]
         if "target_type_code" not in data and "target_type" in data:
             data["target_type_code"] = data["target_type"]
+        if "target_position_attr" not in data and "position_attr" in data:
+            data["target_position_attr"] = data["position_attr"]
+        if "target_length_m" not in data and "length_m" in data:
+            data["target_length_m"] = data["length_m"]
         if "enemy_friend_attr" not in data and "d_friend_attr" in data:
             data["enemy_friend_attr"] = data["d_friend_attr"]
         if "military_civil_attr" not in data and "j_civil_attr" in data:
@@ -248,6 +254,8 @@ class TargetState(CompatModel):
     source_platform_id: Optional[int] = None
     target_id: Optional[str] = None
     target_batch_no: int
+    target_position_attr: Optional[int] = None
+    target_length_m: Optional[float] = Field(default=None, ge=0.0)
     target_bearing_deg: Optional[float] = Field(default=None, ge=0.0, lt=360.0)
     target_distance_m: Optional[float] = Field(default=None, ge=0.0)
     target_absolute_speed_mps: Optional[float] = Field(default=None, ge=0.0)
@@ -275,6 +283,10 @@ class TargetState(CompatModel):
                 data["target_batch_no"] = int(digits or 0)
         if "target_type_code" not in data and "target_type" in data:
             data["target_type_code"] = data["target_type"]
+        if "target_position_attr" not in data and "position_attr" in data:
+            data["target_position_attr"] = data["position_attr"]
+        if "target_length_m" not in data and "length_m" in data:
+            data["target_length_m"] = data["length_m"]
         if "enemy_friend_attr" not in data and "d_friend_attr" in data:
             data["enemy_friend_attr"] = data["d_friend_attr"]
         if "military_civil_attr" not in data and "j_civil_attr" in data:

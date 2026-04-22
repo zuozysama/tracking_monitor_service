@@ -375,6 +375,22 @@ class TaskService:
             update_time=task.update_time,
         )
 
+    def get_debug_candidates(self, task_id: str) -> dict:
+        task = task_store.get_task(task_id)
+        if task is None:
+            raise LookupError("task not found")
+
+        candidates = task.candidate_targets or []
+        return {
+            "task_id": task.task_id,
+            "task_type": task.task_type,
+            "task_status": self._normalize_contract_task_status(task.status),
+            "current_target_id": task.current_target_id,
+            "candidate_count": len(candidates),
+            "candidates": candidates,
+            "update_time": task.update_time,
+        }
+
     def list_tasks(self) -> list:
         return task_store.get_all_tasks()
 

@@ -141,6 +141,15 @@ def get_task_output(task_id: str):
         raise HTTPException(status_code=404, detail=str(e))
 
 
+@router.get("/tasks/{task_id}/debug/candidates")
+def get_task_debug_candidates(task_id: str):
+    try:
+        result = task_service.get_debug_candidates(task_id)
+        return ok(result)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
 @router.post("/tasks/{task_id}/terminate")
 def terminate_task(task_id: str, req: TerminateTaskRequest):
     try:

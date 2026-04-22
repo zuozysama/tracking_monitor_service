@@ -28,12 +28,13 @@ tracking:
     value_score_weight: 20.0
 
     threat_level_max: 5.0
-    default_target_type_value_score: 10.0
+    default_target_type_value_score: 0.0
     default_military_civil_value_score: 0.0
     target_type_value_scores:
-      106: 100.0
-      104: 70.0
-      105: 70.0
+      106: 5.0
+      105: 4.0
+      104: 3.0
+      103: 2.0
     military_civil_value_scores:
       1: 20.0
       2: 0.0

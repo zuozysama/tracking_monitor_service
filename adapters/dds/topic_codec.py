@@ -29,6 +29,7 @@ COMMON_HEADER_FMT = ">IBHBIBQ"
 COMMON_HEADER_LEN = struct.calcsize(COMMON_HEADER_FMT)
 TASK_UPDATE_BUSINESS_FMT = ">64sBBBBBIIHHHB16s"
 TASK_UPDATE_BUSINESS_LEN = struct.calcsize(TASK_UPDATE_BUSINESS_FMT)
+NAV_TIMESTAMP_MS_RAW_MAX = 999_999_999
 
 
 def _fit_ascii(value: str, size: int) -> bytes:
@@ -150,22 +151,46 @@ def _deg_from_i32(raw: int) -> float:
 
 
 def _nav_timestamp_parts(payload: dict[str, Any]) -> tuple[int, int]:
+    # timestamp_millisecond_raw is uint32 fixed-point milliseconds:
+    # range [0, 999.999999] ms with precision 1e-6 ms.
+    # Raw value stores milliseconds * 1_000_000, so valid raw range is [0, 999_999_999].
+    def _normalize_subsec_raw(value: Any) -> int:
+        try:
+            raw = int(value)
+        except Exception:
+            raw = 0
+        return max(0, min(raw, NAV_TIMESTAMP_MS_RAW_MAX))
+
     sec_raw = payload.get("timestamp_sec", payload.get("ts_sec"))
     subsec_raw = payload.get(
         "timestamp_millisecond_raw",
         payload.get("timestamp_ms_raw", payload.get("ts_millisecond_raw")),
     )
+    subsec_ms = payload.get("timestamp_millisecond")
 
-    if sec_raw is not None and subsec_raw is not None:
-        return _u32(sec_raw), _u32(subsec_raw)
+    if sec_raw is not None:
+        if subsec_raw is None and subsec_ms is not None:
+            try:
+                subsec_raw = int(round(float(subsec_ms) * 1_000_000.0))
+            except Exception:
+                subsec_raw = 0
+        return _u32(sec_raw), _normalize_subsec_raw(subsec_raw)
 
     now = datetime.now(timezone.utc)
-    return int(now.timestamp()), now.microsecond * 1000
+    if subsec_raw is None and subsec_ms is not None:
+        try:
+            subsec_raw = int(round(float(subsec_ms) * 1_000_000.0))
+        except Exception:
+            subsec_raw = 0
+    if subsec_raw is not None:
+        return int(now.timestamp()), _normalize_subsec_raw(subsec_raw)
+    return int(now.timestamp()), _normalize_subsec_raw(now.microsecond * 1000)
 
 
 def _nav_timestamp_iso(sec_raw: int, subsec_raw: int) -> str | None:
     try:
-        ts = float(sec_raw) + float(subsec_raw) / 1_000_000_000.0
+        subsec = max(0, min(int(subsec_raw), NAV_TIMESTAMP_MS_RAW_MAX))
+        ts = float(sec_raw) + float(subsec) / 1_000_000_000.0
         return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat().replace("+00:00", "Z")
     except Exception:
         return None
@@ -775,6 +800,7 @@ def decode_topic_payload(topic: str, body: bytes) -> dict:
             platform_id,
         ) = struct.unpack(NAV_BUSINESS_FMT, business)
 
+        timestamp_millisecond_raw = max(0, min(int(timestamp_millisecond_raw), NAV_TIMESTAMP_MS_RAW_MAX))
         timestamp_iso = _nav_timestamp_iso(timestamp_sec, timestamp_millisecond_raw)
 
         return {
