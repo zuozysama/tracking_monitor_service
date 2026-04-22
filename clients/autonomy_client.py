@@ -2,6 +2,7 @@ from config.settings import settings
 from domain.models import AutonomyPatrolDispatch, AutonomyTrackingDispatch
 from store.collaboration_store import collaboration_store
 from utils.time_utils import utc_now
+from typing import Optional
 import requests
 
 
@@ -33,7 +34,7 @@ class AutonomyClient:
         }
 
     @staticmethod
-    def _accepted_from_response_body(body: dict | None, status_code: int) -> bool:
+    def _accepted_from_response_body(body: Optional[dict], status_code: int) -> bool:
         if status_code < 200 or status_code >= 300:
             return False
         if not isinstance(body, dict):
