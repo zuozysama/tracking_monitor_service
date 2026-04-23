@@ -601,46 +601,99 @@ def encode_topic_payload(topic: str, payload: dict) -> bytes:
 
     if topic == MANUAL_SELECTION_REQUEST_TOPIC:
         candidates = payload.get("candidate_targets") or []
-        header = struct.pack(
-            ">64sBH",
+        encoded_candidates = candidates
+        request_type = 1
+        business_header = struct.pack(
+            ">64sBHH3s",
             _fit_ascii(str(payload.get("task_id") or ""), 64),
-            _u16(payload.get("timeout_sec", 0)) & 0xFF,
-            _u16(len(candidates)),
+            _u8(request_type),
+            _u16(payload.get("timeout_sec", 0)),
+            _u16(len(encoded_candidates)),
+            b"\x00" * 3,
         )
         body = bytearray()
-        for item in candidates[:8]:
+        for item in encoded_candidates:
+            threat_level = item.get("threat_level", 0xFF)
+            if threat_level is None:
+                threat_level = 0xFF
             body.extend(
                 struct.pack(
-                    ">64sIHB",
+                    ">64sIHBB16s",
                     _fit_ascii(str(item.get("target_id") or ""), 64),
                     _u32(item.get("target_batch_no", 0)),
                     _u16(item.get("target_type_code", 0)),
+                    _u8(threat_level),
                     _u16(item.get("military_civil_attr", 0)) & 0xFF,
+                    b"\x00" * 16,
                 )
             )
-        return header + bytes(body)
+        protocol_type = _u32(payload.get("protocol_type", 0))
+        version = _u8(payload.get("protocol_version", payload.get("version", 1)))
+        msg_type = _u8(payload.get("msg_type", 1))
+        seq = _u32(payload.get("msg_seq", payload.get("seq", 1)))
+        reserve = _u8(payload.get("reserve", 0))
+        ts_0p1ms = _nav_timestamp_0p1ms_from_day_start(payload)
+        packet_len = COMMON_HEADER_LEN + len(business_header) + len(body)
+        common_header = struct.pack(
+            COMMON_HEADER_FMT,
+            protocol_type,
+            version,
+            packet_len,
+            msg_type,
+            seq,
+            reserve,
+            ts_0p1ms,
+        )
+        return common_header + business_header + bytes(body)
 
     if topic == MANUAL_SWITCH_REQUEST_TOPIC:
         candidates = payload.get("new_candidate_targets") or []
-        header = struct.pack(
-            ">64s64sBH",
+        encoded_candidates = candidates
+        request_type = 2
+        business_header = struct.pack(
+            ">64sBHH3s64sI",
             _fit_ascii(str(payload.get("task_id") or ""), 64),
+            _u8(request_type),
+            _u16(payload.get("timeout_sec", 0)),
+            _u16(len(encoded_candidates)),
+            b"\x00" * 3,
             _fit_ascii(str(payload.get("current_target_id") or ""), 64),
-            _u16(payload.get("timeout_sec", 0)) & 0xFF,
-            _u16(len(candidates)),
+            _u32(payload.get("current_target_batch_no", 0)),
         )
         body = bytearray()
-        for item in candidates[:8]:
+        for item in encoded_candidates:
+            threat_level = item.get("threat_level", 0xFF)
+            if threat_level is None:
+                threat_level = 0xFF
             body.extend(
                 struct.pack(
-                    ">64sIHB",
+                    ">64sIHBB16s",
                     _fit_ascii(str(item.get("target_id") or ""), 64),
                     _u32(item.get("target_batch_no", 0)),
                     _u16(item.get("target_type_code", 0)),
+                    _u8(threat_level),
                     _u16(item.get("military_civil_attr", 0)) & 0xFF,
+                    b"\x00" * 16,
                 )
             )
-        return header + bytes(body)
+        protocol_type = _u32(payload.get("protocol_type", 0))
+        version = _u8(payload.get("protocol_version", payload.get("version", 1)))
+        msg_type = _u8(payload.get("msg_type", 1))
+        seq = _u32(payload.get("msg_seq", payload.get("seq", 1)))
+        reserve = _u8(payload.get("reserve", 0))
+        ts_0p1ms = _nav_timestamp_0p1ms_from_day_start(payload)
+        packet_len = COMMON_HEADER_LEN + len(business_header) + len(body)
+        common_header = struct.pack(
+            COMMON_HEADER_FMT,
+            protocol_type,
+            version,
+            packet_len,
+            msg_type,
+            seq,
+            reserve,
+            ts_0p1ms,
+        )
+        return common_header + business_header + bytes(body)
 
     if topic == ELECTRO_OPTICAL_LINKAGE_CMD_TOPIC:
         return struct.pack(

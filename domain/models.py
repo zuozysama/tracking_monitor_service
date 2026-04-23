@@ -462,6 +462,7 @@ class ManualSwitchRequest(CompatModel):
     request_type: str
     timeout_sec: int = Field(..., ge=1)
     current_target_id: str
+    current_target_batch_no: Optional[int] = None
     new_candidate_targets: List[TargetInfo]
 
 

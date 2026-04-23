@@ -259,6 +259,7 @@ class CollaborationService:
             request_type="manual_switch",
             timeout_sec=task.manual_switch_timeout_sec,
             current_target_id=task.current_target_id,
+            current_target_batch_no=task.current_target_batch_no,
             new_candidate_targets=higher_candidates,
         )
         collaboration_store.append_manual_switch_request(payload.model_dump(mode="json"))

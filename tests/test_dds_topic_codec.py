@@ -2,7 +2,13 @@ import struct
 import unittest
 
 from adapters.dds.topic_codec import decode_topic_payload, encode_topic_payload
-from domain.dds_contract import OWNSHIP_NAVIGATION_TOPIC, TARGET_PERCEPTION_TOPIC, TASK_UPDATE_TOPIC
+from domain.dds_contract import (
+    MANUAL_SELECTION_REQUEST_TOPIC,
+    MANUAL_SWITCH_REQUEST_TOPIC,
+    OWNSHIP_NAVIGATION_TOPIC,
+    TARGET_PERCEPTION_TOPIC,
+    TASK_UPDATE_TOPIC,
+)
 
 GEO_LSB_DEG = 180.0 / (2 ** 31)
 
@@ -381,6 +387,119 @@ class TopicCodecDecodeTestCase(unittest.TestCase):
         self.assertEqual(decoded["waypoint_count"], 6)
         self.assertEqual(decoded["finish_reason"], 4)
         self.assertEqual(decoded["decode_format"], "task_update_21_plus_100_fields")
+
+    def test_encode_manual_selection_21_plus_fields(self):
+        body = encode_topic_payload(
+            MANUAL_SELECTION_REQUEST_TOPIC,
+            {
+                "protocol_type": 0,
+                "protocol_version": 1,
+                "msg_type": 2,
+                "msg_seq": 11,
+                "reserve": 0,
+                "timestamp_0p1ms": 222,
+                "task_id": "task-001",
+                "timeout_sec": 20,
+                "candidate_targets": [
+                    {
+                        "target_id": "target-001",
+                        "target_batch_no": 101,
+                        "target_type_code": 106,
+                        "threat_level": 3,
+                        "military_civil_attr": 1,
+                    },
+                    {
+                        "target_id": "target-002",
+                        "target_batch_no": 102,
+                        "target_type_code": 107,
+                        "threat_level": 2,
+                        "military_civil_attr": 2,
+                    },
+                ],
+            },
+        )
+
+        self.assertEqual(len(body), 21 + 72 + 2 * 88)
+        protocol_type, version, packet_len, msg_type, seq, reserve, ts_0p1ms = struct.unpack(">IBHBIBQ", body[:21])
+        self.assertEqual(protocol_type, 0)
+        self.assertEqual(version, 1)
+        self.assertEqual(packet_len, len(body))
+        self.assertEqual(msg_type, 2)
+        self.assertEqual(seq, 11)
+        self.assertEqual(reserve, 0)
+        self.assertEqual(ts_0p1ms, 222)
+
+        request_type = struct.unpack(">B", body[21 + 64 : 21 + 65])[0]
+        timeout_sec = struct.unpack(">H", body[21 + 65 : 21 + 67])[0]
+        candidate_count = struct.unpack(">H", body[21 + 67 : 21 + 69])[0]
+        reserved0 = body[21 + 69 : 21 + 72]
+        first_target_type = struct.unpack(">H", body[21 + 72 + 68 : 21 + 72 + 70])[0]
+        first_threat_level = struct.unpack(">B", body[21 + 72 + 70 : 21 + 72 + 71])[0]
+        first_military_civil = struct.unpack(">B", body[21 + 72 + 71 : 21 + 72 + 72])[0]
+        first_reserved = body[21 + 72 + 72 : 21 + 72 + 88]
+        self.assertEqual(request_type, 1)
+        self.assertEqual(timeout_sec, 20)
+        self.assertEqual(candidate_count, 2)
+        self.assertEqual(reserved0, b"\x00" * 3)
+        self.assertEqual(first_target_type, 106)
+        self.assertEqual(first_threat_level, 3)
+        self.assertEqual(first_military_civil, 1)
+        self.assertEqual(first_reserved, b"\x00" * 16)
+
+    def test_encode_manual_switch_21_plus_fields(self):
+        body = encode_topic_payload(
+            MANUAL_SWITCH_REQUEST_TOPIC,
+            {
+                "protocol_type": 0,
+                "protocol_version": 1,
+                "msg_type": 3,
+                "msg_seq": 12,
+                "reserve": 0,
+                "timestamp_0p1ms": 333,
+                "task_id": "task-002",
+                "current_target_id": "target-000",
+                "current_target_batch_no": 999,
+                "timeout_sec": 15,
+                "new_candidate_targets": [
+                    {
+                        "target_id": "target-003",
+                        "target_batch_no": 103,
+                        "target_type_code": 108,
+                        "threat_level": 1,
+                        "military_civil_attr": 1,
+                    }
+                ],
+            },
+        )
+
+        self.assertEqual(len(body), 21 + 140 + 1 * 88)
+        protocol_type, version, packet_len, msg_type, seq, reserve, ts_0p1ms = struct.unpack(">IBHBIBQ", body[:21])
+        self.assertEqual(protocol_type, 0)
+        self.assertEqual(version, 1)
+        self.assertEqual(packet_len, len(body))
+        self.assertEqual(msg_type, 3)
+        self.assertEqual(seq, 12)
+        self.assertEqual(reserve, 0)
+        self.assertEqual(ts_0p1ms, 333)
+
+        request_type = struct.unpack(">B", body[21 + 64 : 21 + 65])[0]
+        timeout_sec = struct.unpack(">H", body[21 + 65 : 21 + 67])[0]
+        candidate_count = struct.unpack(">H", body[21 + 67 : 21 + 69])[0]
+        reserved0 = body[21 + 69 : 21 + 72]
+        current_target_batch_no = struct.unpack(">I", body[21 + 136 : 21 + 140])[0]
+        first_target_type = struct.unpack(">H", body[21 + 140 + 68 : 21 + 140 + 70])[0]
+        first_threat_level = struct.unpack(">B", body[21 + 140 + 70 : 21 + 140 + 71])[0]
+        first_military_civil = struct.unpack(">B", body[21 + 140 + 71 : 21 + 140 + 72])[0]
+        first_reserved = body[21 + 140 + 72 : 21 + 140 + 88]
+        self.assertEqual(request_type, 2)
+        self.assertEqual(timeout_sec, 15)
+        self.assertEqual(candidate_count, 1)
+        self.assertEqual(reserved0, b"\x00" * 3)
+        self.assertEqual(current_target_batch_no, 999)
+        self.assertEqual(first_target_type, 108)
+        self.assertEqual(first_threat_level, 1)
+        self.assertEqual(first_military_civil, 1)
+        self.assertEqual(first_reserved, b"\x00" * 16)
 
 
 if __name__ == "__main__":

@@ -344,7 +344,6 @@ class RealLjdssAdapter(DdsAdapter):
             self._ensure_pub_topic(topic)
 
             CSMXP_V3 = self._CSMXP_V3
-            CSMXP_V3_MSG_HEAD = self._CSMXP_V3_MSG_HEAD
             addressof = self._addressof
             memmove = self._memmove
 
@@ -354,34 +353,20 @@ class RealLjdssAdapter(DdsAdapter):
 
             body = encode_topic_payload(topic, payload)
             msg_capacity = len(instance.MSG)
-            head_size = CSMXP_V3_MSG_HEAD.size()
-            max_body = max(0, msg_capacity - head_size)
+            max_body = max(0, msg_capacity)
             if len(body) > max_body:
                 body = body[:max_body]
 
-            self._seq += 1
-            v3header = CSMXP_V3_MSG_HEAD()
-            v3header.spare = 0
-            v3header.snd = int(payload.get("snd", 0))
-            v3header.rcv = int(payload.get("rcv", 0))
-            v3header.seq = self._seq
-            v3header.ack = int(payload.get("ack", 0))
-            v3header.flag = int(payload.get("flag", 0))
-            v3header.num = int(payload.get("num", 1))
-            v3header.length = head_size + len(body)
-
-            memmove(addressof(instance.MSG), v3header.pack(), head_size)
             if body:
-                memmove(addressof(instance.MSG) + head_size, body, len(body))
+                memmove(addressof(instance.MSG), body, len(body))
 
-            self._dds.write_data(topic, instance, v3header.length)
-            wire_packet = v3header.pack() + body
+            self._dds.write_data(topic, instance, len(body))
             self._log(
                 topic=topic,
                 payload=payload,
                 adapter="real",
-                wire_length=v3header.length,
-                raw_hex=wire_packet.hex(),
+                wire_length=len(body),
+                raw_hex=body.hex(),
                 body_hex=body.hex(),
             )
         except Exception as exc:
