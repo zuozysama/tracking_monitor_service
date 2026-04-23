@@ -3,6 +3,7 @@ from typing import List, Optional, Tuple
 
 from domain.models import GeoPoint, OwnShipState, TargetConstraint, TargetState, TaskArea
 from utils.config_utils import (
+    get_tracking_default_min_threat_level,
     get_tracking_default_target_type_value_score,
     get_tracking_bearing_center_deg,
     get_tracking_bearing_window_deg,
@@ -21,7 +22,6 @@ from utils.geo_utils import haversine_distance_m
 from utils.region_utils import is_target_in_task_area
 
 DEFAULT_SURFACE_TARGET_POSITION_ATTR = 3
-DEFAULT_MIN_THREAT_LEVEL = 2
 
 
 def normalize_bearing_deg(angle: float) -> float:
@@ -405,10 +405,12 @@ def filter_and_select_target(
     current_target_id: Optional[str] = None,
     apply_default_surface_filter: bool = False,
     default_surface_position_attr: int = DEFAULT_SURFACE_TARGET_POSITION_ATTR,
-    default_min_threat_level: int = DEFAULT_MIN_THREAT_LEVEL,
+    default_min_threat_level: Optional[int] = None,
 ) -> Tuple[Optional[TargetState], List[dict]]:
     # Keep signature for compatibility; ranking no longer relies on legacy weighted total_score.
     _ = identity_weights
+    if default_min_threat_level is None:
+        default_min_threat_level = get_tracking_default_min_threat_level()
 
     min_range, max_range = _resolve_range_window(constraint)
     if max_target_range_m is not None:

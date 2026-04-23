@@ -23,6 +23,14 @@ def get_tracking_expel_distance_m() -> float:
     return settings.tracking.expel_distance_m
 
 
+def get_tracking_manual_selection_timeout_sec() -> int:
+    return int(settings.tracking.manual_selection_timeout_sec)
+
+
+def get_tracking_manual_switch_timeout_sec() -> int:
+    return int(settings.tracking.manual_switch_timeout_sec)
+
+
 def get_tracking_min_target_range_m() -> float:
     return settings.tracking.filter.min_target_range_m
 
@@ -86,6 +94,10 @@ def get_tracking_hysteresis_margin() -> float:
 
 def get_tracking_threat_level_max() -> float:
     return settings.tracking.filter.threat_level_max
+
+
+def get_tracking_default_min_threat_level() -> int:
+    return int(settings.tracking.filter.default_min_threat_level)
 
 
 def get_tracking_default_target_type_value_score() -> float:

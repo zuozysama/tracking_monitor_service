@@ -26,7 +26,11 @@ from services.tracking_service import tracking_service
 from services.underwater_search_service import underwater_search_service
 from store.situation_store import situation_store
 from store.task_store import task_store
-from utils.config_utils import get_fixed_tracking_default_radius_m
+from utils.config_utils import (
+    get_fixed_tracking_default_radius_m,
+    get_tracking_manual_selection_timeout_sec,
+    get_tracking_manual_switch_timeout_sec,
+)
 from utils.region_utils import is_point_in_task_area
 from utils.time_utils import utc_now
 
@@ -73,6 +77,8 @@ class TaskService:
             default_region_radius_m=get_fixed_tracking_default_radius_m(),
             expected_speed=req.expected_speed,
             update_interval_sec=req.update_interval_sec or 1,
+            manual_selection_timeout_sec=get_tracking_manual_selection_timeout_sec(),
+            manual_switch_timeout_sec=get_tracking_manual_switch_timeout_sec(),
             end_condition=end_condition,
             stream_media_param=req.stream_media_param,
             linkage_param=req.linkage_param,

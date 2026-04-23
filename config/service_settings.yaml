@@ -6,6 +6,8 @@ tracking:
   escort_distance_m: 500.0
   intercept_distance_m: 100.0
   expel_distance_m: 200.0
+  manual_selection_timeout_sec: 20
+  manual_switch_timeout_sec: 20
 
   filter:
     min_target_range_m: 0.0
@@ -28,6 +30,7 @@ tracking:
     value_score_weight: 20.0
 
     threat_level_max: 5.0
+    default_min_threat_level: 2
     default_target_type_value_score: 0.0
     default_military_civil_value_score: 0.0
     target_type_value_scores:

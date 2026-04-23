@@ -38,6 +38,7 @@ class TrackingFilterConfig(BaseModel):
     value_score_weight: float = 20.0
 
     threat_level_max: float = 5.0
+    default_min_threat_level: int = 2
     default_target_type_value_score: float = 0.0
     default_military_civil_value_score: float = 0.0
     target_type_value_scores: Dict[int, float] = Field(default_factory=dict)
@@ -58,6 +59,8 @@ class TrackingConfig(BaseModel):
     escort_distance_m: float = 300.0
     intercept_distance_m: float = 500.0
     expel_distance_m: float = 200.0
+    manual_selection_timeout_sec: int = Field(default=20, ge=1)
+    manual_switch_timeout_sec: int = Field(default=20, ge=1)
     filter: TrackingFilterConfig = TrackingFilterConfig()
     arrival: TrackingArrivalConfig = TrackingArrivalConfig()
 
@@ -133,6 +136,16 @@ def _get_env_float(name: str) -> Optional[float]:
         return None
 
 
+def _get_env_int(name: str) -> Optional[int]:
+    value = _get_env_str(name)
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except Exception:
+        return None
+
+
 def _parse_target_type_order(raw: str) -> list[int]:
     normalized = raw.replace(">", ",").replace(";", ",").replace("|", ",")
     tokens = [part.strip() for part in normalized.split(",") if part.strip()]
@@ -155,6 +168,22 @@ def _build_target_type_rank_scores(order: list[int]) -> Dict[int, float]:
     return {code: float(size - idx) for idx, code in enumerate(order)}
 
 
+def _apply_tracking_env_overrides(merged: Dict[str, Any]) -> Dict[str, Any]:
+    result = dict(merged)
+    tracking = dict(result.get("tracking") or {})
+
+    manual_selection_timeout_sec = _get_env_int("TRACKING_MANUAL_SELECTION_TIMEOUT_SEC")
+    if manual_selection_timeout_sec is not None and manual_selection_timeout_sec > 0:
+        tracking["manual_selection_timeout_sec"] = manual_selection_timeout_sec
+
+    manual_switch_timeout_sec = _get_env_int("TRACKING_MANUAL_SWITCH_TIMEOUT_SEC")
+    if manual_switch_timeout_sec is not None and manual_switch_timeout_sec > 0:
+        tracking["manual_switch_timeout_sec"] = manual_switch_timeout_sec
+
+    result["tracking"] = tracking
+    return result
+
+
 def _apply_tracking_filter_env_overrides(merged: Dict[str, Any]) -> Dict[str, Any]:
     result = dict(merged)
     tracking = dict(result.get("tracking") or {})
@@ -169,6 +198,10 @@ def _apply_tracking_filter_env_overrides(merged: Dict[str, Any]) -> Dict[str, An
     default_other_value = _get_env_float("TRACKING_TARGET_TYPE_OTHER_VALUE_SCORE")
     if default_other_value is not None:
         filter_cfg["default_target_type_value_score"] = default_other_value
+
+    default_min_threat_level = _get_env_int("TRACKING_DEFAULT_MIN_THREAT_LEVEL")
+    if default_min_threat_level is not None:
+        filter_cfg["default_min_threat_level"] = default_min_threat_level
 
     tracking["filter"] = filter_cfg
     result["tracking"] = tracking
@@ -207,6 +240,7 @@ def load_settings(config_file: str = "config/service_settings.yaml") -> ServiceC
     default_dict = _default_settings_dict()
     yaml_dict = _load_yaml_dict(config_path)
     merged = _deep_merge(default_dict, yaml_dict)
+    merged = _apply_tracking_env_overrides(merged)
     merged = _apply_tracking_filter_env_overrides(merged)
     merged = _apply_external_service_env_overrides(merged)
     return ServiceConfig(**merged)
