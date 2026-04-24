@@ -37,6 +37,18 @@ from utils.time_utils import utc_now
 
 class TaskService:
     @staticmethod
+    def _parse_target_batch_no_from_id(target_id: Optional[str]) -> Optional[int]:
+        if target_id is None:
+            return None
+        text = str(target_id).strip()
+        if not text:
+            return None
+        digits = "".join(ch for ch in text if ch.isdigit())
+        if not digits:
+            return None
+        return int(digits)
+
+    @staticmethod
     def _is_tracking_task_type(task_type: TaskType) -> bool:
         return task_type in {TaskType.ESCORT, TaskType.INTERCEPT, TaskType.EXPEL}
 
@@ -214,11 +226,18 @@ class TaskService:
         if task.manual_selection_deadline is not None and now > task.manual_selection_deadline:
             raise ValueError("manual selection feedback timeout")
 
+        selected_target_batch_no = self._parse_target_batch_no_from_id(req.selected_target_id)
         task.current_target_id = req.selected_target_id
+        if selected_target_batch_no is not None:
+            task.current_target_batch_no = selected_target_batch_no
         if task.target_constraint is not None:
             # Manual selection from command side should lock target identity for follow-up ticks.
-            task.target_constraint.target_id = req.selected_target_id
-            task.target_constraint.target_batch_no = None
+            if selected_target_batch_no is not None:
+                task.target_constraint.target_id = None
+                task.target_constraint.target_batch_no = selected_target_batch_no
+            else:
+                task.target_constraint.target_id = req.selected_target_id
+                task.target_constraint.target_batch_no = None
         task.manual_selection_pending = False
         task.manual_selection_feedback_received = True
         task.manual_selection_selected_target_id = req.selected_target_id
@@ -237,10 +256,17 @@ class TaskService:
             raise ValueError("manual switch feedback timeout")
 
         if not req.keep_current and req.selected_target_id:
+            selected_target_batch_no = self._parse_target_batch_no_from_id(req.selected_target_id)
             task.current_target_id = req.selected_target_id
+            if selected_target_batch_no is not None:
+                task.current_target_batch_no = selected_target_batch_no
             if task.target_constraint is not None:
-                task.target_constraint.target_id = req.selected_target_id
-                task.target_constraint.target_batch_no = None
+                if selected_target_batch_no is not None:
+                    task.target_constraint.target_id = None
+                    task.target_constraint.target_batch_no = selected_target_batch_no
+                else:
+                    task.target_constraint.target_id = req.selected_target_id
+                    task.target_constraint.target_batch_no = None
         task.manual_switch_pending = False
         task.manual_switch_feedback_received = True
         task.manual_switch_selected_target_id = req.selected_target_id
@@ -327,7 +353,9 @@ class TaskService:
             raise LookupError("task not found")
 
         current_target_info = None
-        if task.current_target_id:
+        if task.current_target_batch_no is not None:
+            current_target_info = situation_store.get_target_by_batch_no(task.current_target_batch_no)
+        elif task.current_target_id:
             current_target_info = situation_store.get_target(task.current_target_id)
 
         return TaskResultResponse(

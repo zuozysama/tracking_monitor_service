@@ -5,8 +5,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=/dev/null
 source "${SCRIPT_DIR}/common.sh"
 
-require_jq
-
 TASK_ID="${TASK_ID:-${1:-}}"
 SELECTED_TARGET_ID="${SELECTED_TARGET_ID:-${2:-}}"
 FEEDBACK_TIME="${FEEDBACK_TIME:-$(now_utc)}"
@@ -19,27 +17,57 @@ fi
 
 if [[ -z "${SELECTED_TARGET_ID}" ]]; then
   raw_req="$(api_get "/mock/collaboration/manual-selection/requests")"
-  SELECTED_TARGET_ID="$(
-    echo "${raw_req}" \
-      | jq -r --arg tid "${TASK_ID}" '.data.items | map(select(.task_id == $tid)) | .[-1].candidate_targets[0].target_id // empty'
-  )"
+  if command -v jq >/dev/null 2>&1; then
+    SELECTED_TARGET_ID="$(
+      echo "${raw_req}" \
+        | jq -r --arg tid "${TASK_ID}" '.data.items | map(select(.task_id == $tid)) | .[-1].candidate_targets[0].target_id // empty'
+    )"
+  else
+    SELECTED_TARGET_ID="$(
+      run_python - "${TASK_ID}" "${raw_req}" <<'PY'
+import json
+import sys
+
+task_id = sys.argv[1]
+raw_json = sys.argv[2]
+
+try:
+    payload = json.loads(raw_json)
+except Exception:
+    print("")
+    raise SystemExit(0)
+
+items = ((payload or {}).get("data") or {}).get("items") or []
+selected = ""
+for item in items:
+    if item.get("task_id") != task_id:
+        continue
+    candidates = item.get("candidate_targets") or []
+    if not candidates:
+        continue
+    target_id = (candidates[0] or {}).get("target_id") or ""
+    if target_id:
+        selected = target_id
+
+print(selected)
+PY
+    )"
+  fi
 fi
 
 if [[ -z "${SELECTED_TARGET_ID}" ]]; then
   echo "[error] SELECTED_TARGET_ID is required (or ensure manual-selection request exists with candidate_targets)." >&2
+  echo "[hint] install jq, or pass SELECTED_TARGET_ID explicitly." >&2
   exit 1
 fi
 
-payload="$(
-  jq -n \
-    --arg task_id "${TASK_ID}" \
-    --arg selected_target_id "${SELECTED_TARGET_ID}" \
-    --arg feedback_time "${FEEDBACK_TIME}" \
-    '{
-      task_id: $task_id,
-      selected_target_id: $selected_target_id,
-      feedback_time: $feedback_time
-    }'
+payload="$(cat <<EOF
+{
+  "task_id": "${TASK_ID}",
+  "selected_target_id": "${SELECTED_TARGET_ID}",
+  "feedback_time": "${FEEDBACK_TIME}"
+}
+EOF
 )"
 
 echo "[info] send manual_selection feedback: task_id=${TASK_ID}, selected_target_id=${SELECTED_TARGET_ID}"

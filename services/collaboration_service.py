@@ -147,7 +147,9 @@ class CollaborationService:
             return
         if not self._is_tracking_task_type(task.task_type):
             return
-        if task.target_constraint is not None and task.target_constraint.target_id:
+        if task.target_constraint is not None and (
+            task.target_constraint.target_id or task.target_constraint.target_batch_no is not None
+        ):
             return
 
         candidates = task.candidate_targets or []
@@ -203,12 +205,16 @@ class CollaborationService:
 
     def _build_manual_switch_candidates(self, task: TaskContext) -> list[TargetInfo]:
         candidates = task.candidate_targets or []
-        if not candidates or not task.current_target_id:
+        if not candidates or (task.current_target_batch_no is None and not task.current_target_id):
             return []
 
         current_key = None
         for item in candidates:
-            if item.get("target_id") == task.current_target_id:
+            item_batch_no = item.get("target_batch_no")
+            if task.current_target_batch_no is not None and item_batch_no == task.current_target_batch_no:
+                current_key = self._candidate_rank_key(item)
+                break
+            if task.current_target_batch_no is None and item.get("target_id") == task.current_target_id:
                 current_key = self._candidate_rank_key(item)
                 break
         if current_key is None:
@@ -216,16 +222,19 @@ class CollaborationService:
 
         higher: list[TargetInfo] = []
         for item in candidates:
+            item_batch_no = item.get("target_batch_no")
             target_id = item.get("target_id")
-            if target_id == task.current_target_id:
+            if task.current_target_batch_no is not None and item_batch_no == task.current_target_batch_no:
+                continue
+            if task.current_target_batch_no is None and target_id == task.current_target_id:
                 continue
             candidate_key = self._candidate_rank_key(item)
             if candidate_key >= current_key:
                 continue
             higher.append(
                 TargetInfo(
-                    target_id=target_id,
-                    target_batch_no=item.get("target_batch_no"),
+                    target_id=target_id or (f"target-{item_batch_no}" if item_batch_no is not None else None),
+                    target_batch_no=item_batch_no,
                     target_type_code=item.get("target_type_code"),
                     target_position_attr=item.get("target_position_attr"),
                     target_length_m=item.get("target_length_m"),
@@ -244,21 +253,28 @@ class CollaborationService:
             return
         if not self._is_tracking_task_type(task.task_type):
             return
-        if not task.current_target_id:
+        if task.current_target_batch_no is None and not task.current_target_id:
             return
-        if task.target_constraint is None or not task.target_constraint.target_id:
+        if task.target_constraint is None or (
+            not task.target_constraint.target_id and task.target_constraint.target_batch_no is None
+        ):
             # Switch scenario requires explicit designated target.
             return
 
         higher_candidates = self._build_manual_switch_candidates(task)
         if not higher_candidates:
             return
+        current_target_id = task.current_target_id
+        if current_target_id in {None, ""} and task.current_target_batch_no is not None:
+            current_target_id = f"target-{task.current_target_batch_no}"
+        if current_target_id in {None, ""}:
+            return
 
         payload = ManualSwitchRequest(
             task_id=task.task_id,
             request_type="manual_switch",
             timeout_sec=task.manual_switch_timeout_sec,
-            current_target_id=task.current_target_id,
+            current_target_id=current_target_id,
             current_target_batch_no=task.current_target_batch_no,
             new_candidate_targets=higher_candidates,
         )

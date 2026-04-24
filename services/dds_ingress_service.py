@@ -4,11 +4,10 @@ from adapters.dds.base import DdsAdapter
 from domain.dds_contract import OWNSHIP_NAVIGATION_TOPIC, TARGET_PERCEPTION_TOPIC
 from domain.models import OwnShipState, TargetState
 from store.situation_store import situation_store
-from utils.config_utils import get_dds_focus_platform_id, get_dds_target_sync_mode
+from utils.config_utils import get_dds_focus_platform_id
 from utils.time_utils import utc_now
 
 _FOCUS_PLATFORM_ID = get_dds_focus_platform_id()
-_TARGET_SYNC_MODE = get_dds_target_sync_mode()
 
 
 def _safe_int(value, default: int = 0) -> int:
@@ -16,29 +15,6 @@ def _safe_int(value, default: int = 0) -> int:
         return int(value)
     except Exception:
         return default
-
-
-def _safe_bool(value, default: bool = False) -> bool:
-    if value is None:
-        return default
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        normalized = value.strip().lower()
-        if normalized in {"1", "true", "yes", "on"}:
-            return True
-        if normalized in {"0", "false", "no", "off"}:
-            return False
-    return bool(value)
-
-
-def _resolve_target_sync_mode(data: dict) -> str:
-    if _safe_bool(data.get("is_full_snapshot"), False):
-        return "replace"
-    raw_mode = str(data.get("sync_mode", "")).strip().lower()
-    if raw_mode in {"replace", "merge"}:
-        return raw_mode
-    return _TARGET_SYNC_MODE
 
 
 def _on_ownship_message(data: dict) -> None:
@@ -62,24 +38,31 @@ def _on_ownship_message(data: dict) -> None:
 
 
 def _on_target_perception_message(data: dict) -> None:
-    source_platform_id = _safe_int(data.get("source_platform_id"), -1)
-    if source_platform_id >= 0 and source_platform_id != _FOCUS_PLATFORM_ID:
-        return
-
     targets_raw = data.get("targets") or []
     models: list[TargetState] = []
     for item in targets_raw:
         try:
-            item_source = _safe_int(item.get("source_platform_id"), -1)
-            if item_source >= 0 and item_source != _FOCUS_PLATFORM_ID:
+            batch_no = _safe_int(item.get("target_batch_no"), 0)
+
+            # Enemy/friend semantics:
+            #   1 -> red side (own side), do not enter situation targets
+            #   2 -> blue side (enemy side), enter situation targets
+            military_civil_attr = _safe_int(item.get("military_civil_attr"), 0)
+            if military_civil_attr == 1:
                 continue
+            if military_civil_attr != 2:
+                print(
+                    "[DDS Ingress] warning: unknown military_civil_attr, keeping target for compatibility: "
+                    f"military_civil_attr={military_civil_attr}, "
+                    f"batch_no={batch_no}, target_id={item.get('target_id')}"
+                )
 
             msg_ts = item.get("timestamp") or data.get("timestamp") or utc_now()
             models.append(
                 TargetState(
                     source_platform_id=item.get("source_platform_id"),
                     target_id=item.get("target_id"),
-                    target_batch_no=int(item.get("target_batch_no", 0)),
+                    target_batch_no=batch_no,
                     target_position_attr=item.get("target_position_attr"),
                     target_length_m=item.get("target_length_m"),
                     target_bearing_deg=float(item.get("target_bearing_deg", 0.0)) % 360.0,
@@ -90,7 +73,7 @@ def _on_target_perception_message(data: dict) -> None:
                     target_latitude=float(item.get("target_latitude", 0.0)),
                     target_type_code=item.get("target_type_code"),
                     enemy_friend_attr=item.get("enemy_friend_attr"),
-                    military_civil_attr=item.get("military_civil_attr"),
+                    military_civil_attr=military_civil_attr,
                     target_name=item.get("target_name"),
                     threat_level=item.get("threat_level"),
                     timestamp=msg_ts,
@@ -106,13 +89,8 @@ def _on_target_perception_message(data: dict) -> None:
     if source_id is not None:
         source_id = str(source_id)
 
-    sync_mode = _resolve_target_sync_mode(data)
-    if sync_mode == "replace":
-        situation_store.replace_targets(models, revision=revision, source_id=source_id)
-        return
-
-    if not models and revision is None:
-        return
+    # Unified dynamic retention:
+    # always upsert incoming targets and prune stale unseen targets by timeout.
     situation_store.update_targets(models, revision=revision, source_id=source_id)
 
 

@@ -23,6 +23,19 @@ require_jq() {
   fi
 }
 
+run_python() {
+  if command -v python3 >/dev/null 2>&1; then
+    python3 "$@"
+    return
+  fi
+  if command -v python >/dev/null 2>&1; then
+    python "$@"
+    return
+  fi
+  echo "[error] python3/python is required when jq is unavailable." >&2
+  return 1
+}
+
 api_get() {
   local path="$1"
   curl -sS "${BASE_URL}${path}"
@@ -35,4 +48,3 @@ api_post_json() {
     -H "Content-Type: application/json" \
     -d "${json_payload}"
 }
-

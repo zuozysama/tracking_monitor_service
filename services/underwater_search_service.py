@@ -41,6 +41,7 @@ class UnderwaterSearchService:
             max_target_range_m=get_tracking_max_target_range_m(),
             identity_weights=get_tracking_filter_identity_weights(),
             current_target_id=task.current_target_id,
+            current_target_batch_no=task.current_target_batch_no,
         )
 
         task.candidate_targets = debug_candidates

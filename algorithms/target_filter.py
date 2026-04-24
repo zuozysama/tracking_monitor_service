@@ -316,6 +316,7 @@ def _print_filter_debug(
     candidates: List[dict],
     selected_target: Optional[TargetState],
     current_target_id: Optional[str],
+    current_target_batch_no: Optional[int],
     min_target_range_m: float,
     max_target_range_m: float,
     sector_skipped_for_identity: bool,
@@ -339,6 +340,7 @@ def _print_filter_debug(
         return
 
     print(f"[TargetFilter] current_target_id: {current_target_id}")
+    print(f"[TargetFilter] current_target_batch_no: {current_target_batch_no}")
     for item in candidates:
         distance_text = "N/A" if item["distance_m"] is None else f'{item["distance_m"]:.2f} m'
         bearing_text = "N/A" if item["bearing_to_target_deg"] is None else f'{item["bearing_to_target_deg"]:.2f} deg'
@@ -367,20 +369,35 @@ def _print_filter_debug(
         print("[TargetFilter] selected target: None")
 
 
-def _apply_hysteresis(candidates: List[dict], current_target_id: Optional[str]) -> Optional[TargetState]:
+def _apply_hysteresis(
+    candidates: List[dict],
+    current_target_id: Optional[str],
+    current_target_batch_no: Optional[int],
+) -> Optional[TargetState]:
     if not candidates:
         return None
 
     top_candidate = candidates[0]
     selected_candidate = top_candidate
-    if is_tracking_hysteresis_enabled() and current_target_id is not None and len(candidates) > 1:
+    current_target_key_available = current_target_batch_no is not None or current_target_id is not None
+    if is_tracking_hysteresis_enabled() and current_target_key_available and len(candidates) > 1:
         current_item = None
         for item in candidates:
-            if item["target"].target_id == current_target_id:
+            if current_target_batch_no is not None:
+                if item["target"].target_batch_no == current_target_batch_no:
+                    current_item = item
+                    break
+            elif item["target"].target_id == current_target_id:
                 current_item = item
                 break
         if current_item is not None:
-            if top_candidate["target"].target_id != current_target_id:
+            same_target_as_current = False
+            if current_target_batch_no is not None:
+                same_target_as_current = top_candidate["target"].target_batch_no == current_target_batch_no
+            elif current_target_id is not None:
+                same_target_as_current = top_candidate["target"].target_id == current_target_id
+
+            if not same_target_as_current:
                 margin = max(float(get_tracking_hysteresis_margin()), 0.0)
                 same_primary_key = (
                     top_candidate["rank_threat_level"] == current_item["rank_threat_level"]
@@ -403,6 +420,7 @@ def filter_and_select_target(
     max_target_range_m: float,
     identity_weights: dict,
     current_target_id: Optional[str] = None,
+    current_target_batch_no: Optional[int] = None,
     apply_default_surface_filter: bool = False,
     default_surface_position_attr: int = DEFAULT_SURFACE_TARGET_POSITION_ATTR,
     default_min_threat_level: Optional[int] = None,
@@ -498,12 +516,17 @@ def filter_and_select_target(
     # threat(desc) -> value(desc) -> length(desc) -> distance(asc)
     candidates.sort(key=lambda item: item["rank_key"])
     top_k_candidates = candidates[: get_tracking_top_k_candidates()]
-    selected_target = _apply_hysteresis(candidates=top_k_candidates, current_target_id=current_target_id)
+    selected_target = _apply_hysteresis(
+        candidates=top_k_candidates,
+        current_target_id=current_target_id,
+        current_target_batch_no=current_target_batch_no,
+    )
 
     _print_filter_debug(
         candidates=top_k_candidates,
         selected_target=selected_target,
         current_target_id=current_target_id,
+        current_target_batch_no=current_target_batch_no,
         min_target_range_m=min_range,
         max_target_range_m=max_range,
         sector_skipped_for_identity=sector_skipped_for_identity,

@@ -165,11 +165,14 @@ class TrackingService:
             max_target_range_m=get_tracking_max_target_range_m(),
             identity_weights=get_tracking_filter_identity_weights(),
             current_target_id=task.current_target_id,
+            current_target_batch_no=task.current_target_batch_no,
             apply_default_surface_filter=True,
         )
 
         task.candidate_targets = debug_candidates
-        if task.target_constraint is not None and task.target_constraint.target_id:
+        if task.target_constraint is not None and (
+            task.target_constraint.target_id or task.target_constraint.target_batch_no is not None
+        ):
             # In explicit designated-target mode, keep tracking the designated target,
             # but still compute global ranked candidates for manual-switch decision.
             relaxed_constraint = task.target_constraint.model_copy(deep=True)
@@ -183,6 +186,7 @@ class TrackingService:
                 max_target_range_m=get_tracking_max_target_range_m(),
                 identity_weights=get_tracking_filter_identity_weights(),
                 current_target_id=task.current_target_id,
+                current_target_batch_no=task.current_target_batch_no,
                 apply_default_surface_filter=True,
             )
             task.candidate_targets = relaxed_debug_candidates
@@ -202,10 +206,10 @@ class TrackingService:
             collaboration_service.handle_patrol_collaboration(task)
             return
 
-        previous_target_id = task.current_target_id
-        if mode == TrackingMode.INTERCEPT and previous_target_id not in {None, target.target_id}:
+        previous_target_batch_no = task.current_target_batch_no
+        if mode == TrackingMode.INTERCEPT and previous_target_batch_no not in {None, target.target_batch_no}:
             self._reset_intercept_state(task)
-        if mode == TrackingMode.EXPEL and previous_target_id not in {None, target.target_id}:
+        if mode == TrackingMode.EXPEL and previous_target_batch_no not in {None, target.target_batch_no}:
             self._reset_expel_state(task)
         self._refresh_intercept_stage(task, ownship, target, mode)
         self._refresh_expel_stage(task, ownship, target, mode)

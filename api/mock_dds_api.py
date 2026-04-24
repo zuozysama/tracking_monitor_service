@@ -12,38 +12,19 @@ router = APIRouter()
 dds_adapter = get_dds_adapter()
 
 
-def _resolve_sync_mode(
-    request_sync_mode: Optional[Literal["replace", "merge"]],
-    payload_sync_mode: Optional[Literal["replace", "merge"]],
-    is_full_snapshot: Optional[bool],
-) -> Literal["replace", "merge"]:
-    if is_full_snapshot is True:
-        return "replace"
-    if request_sync_mode in {"replace", "merge"}:
-        return request_sync_mode
-    if payload_sync_mode in {"replace", "merge"}:
-        return payload_sync_mode
-    return "replace"
-
-
 def _sync_targets(
     req: Union[UpdateTargetsRequest, MockDdsTargetsRequest],
     request_sync_mode: Optional[Literal["replace", "merge"]],
 ):
-    sync_mode = _resolve_sync_mode(request_sync_mode, req.sync_mode, req.is_full_snapshot)
-    if sync_mode == "replace":
-        result = situation_store.replace_targets(
-            req.targets,
-            revision=req.revision,
-            source_id=req.source_id,
-        )
-    else:
-        result = situation_store.update_targets(
-            req.targets,
-            revision=req.revision,
-            source_id=req.source_id,
-        )
-    return sync_mode, result
+    _ = request_sync_mode
+    # Unified dynamic retention path for debug API:
+    # upsert incoming targets and prune stale unseen targets by timeout.
+    result = situation_store.update_targets(
+        req.targets,
+        revision=req.revision,
+        source_id=req.source_id,
+    )
+    return "dynamic", result
 
 
 @router.post("/ownship")

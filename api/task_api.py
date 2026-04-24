@@ -67,8 +67,6 @@ def create_task(req: CreateTaskRequest):
             "task_id": task.task_id,
             "task_type": task.task_type,
             "task_name": task.task_name,
-            "task_status": task.status,
-            "execution_phase": task.execution_phase,
             "create_time": task.create_time,
             "start_time": task.start_time,
             "update_time": task.update_time,

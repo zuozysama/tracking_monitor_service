@@ -148,8 +148,12 @@ def get_dds_focus_platform_id() -> int:
         return 1001
 
 
-def get_dds_target_sync_mode() -> str:
-    raw = os.getenv("DDS_TARGET_SYNC_MODE", "replace").strip().lower()
-    if raw in {"replace", "merge"}:
-        return raw
-    return "replace"
+def get_dds_target_stale_timeout_sec() -> float:
+    raw = os.getenv("DDS_TARGET_STALE_TIMEOUT_SEC", "3.0").strip()
+    try:
+        value = float(raw)
+    except Exception:
+        return 3.0
+    if value <= 0:
+        return 3.0
+    return value
