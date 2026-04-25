@@ -201,7 +201,7 @@ GET {{baseUrl}}/mock/dds/situation
 GET {{baseUrl}}/mock/collaboration/optical-linkage/commands
 
 ### 11. Cleanup task
-GET {{baseUrl}}/mock/collaboration/media/stream-access
+GET {{baseUrl}}/mock/collaboration/media/videos
 
 ### 16. Inspect task result after Stage-3 arrival
 GET {{baseUrl}}/api/v1/tasks/{{taskId}}/result

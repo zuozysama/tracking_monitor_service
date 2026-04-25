@@ -24,6 +24,7 @@ external_services:
     mode: http
     base_url: "http://127.0.0.1:9002"
     timeout_sec: 3.0
+    rtsp_url: ""
 
   planning:
     mode: http
@@ -54,3 +55,9 @@ external_services:
 - `DDS_QOS_FILE`
 - `DDS_LICENSE_FILE`
 - `DDS_PARTICIPANT_NAME`
+
+媒体直连 RTSP 可通过以下方式配置：
+
+- `external_services.media.rtsp_url`
+- `EXTERNAL_MEDIA_RTSP_URL`
+- `MEDIA_RTSP_URL`（优先级最高，便于本地快速调试）

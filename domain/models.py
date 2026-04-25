@@ -442,14 +442,6 @@ class SonarMatchStatus(CompatModel):
     update_time: datetime
 
 
-class MediaStreamAccessRequest(CompatModel):
-    task_id: str
-    stream_type: str
-    channel_id: str
-    media_protocol: str
-    request_time: datetime
-
-
 class ManualSelectionRequest(CompatModel):
     task_id: str
     request_type: str

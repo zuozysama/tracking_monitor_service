@@ -72,9 +72,6 @@ GET {{baseUrl}}/api/v1/{{taskId}}/output
 ### Query task result detail
 GET {{baseUrl}}/api/v1/tasks/{{taskId}}/result
 
-### Request media stream access
-GET {{baseUrl}}/api/v1/media/stream/access?task_id={{taskId}}&stream_type=optical_video&channel_id=optical-001&media_protocol=webrtc
-
 ### Observe manual target selection request DDS log
 GET {{baseUrl}}/mock/collaboration/dds/publish-logs
 
@@ -222,9 +219,6 @@ GET {{baseUrl}}/mock/collaboration/planning/plans
 
 ### Inspect mock optical linkage DDS commands
 GET {{baseUrl}}/mock/collaboration/optical-linkage/commands
-
-### Inspect mock media access logs
-GET {{baseUrl}}/mock/collaboration/media/stream-access
 
 ### Inspect mock manual selection requests
 GET {{baseUrl}}/mock/collaboration/manual-selection/requests

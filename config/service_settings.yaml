@@ -71,6 +71,7 @@ external_services:
     mode: mock
     base_url: ""
     timeout_sec: 3.0
+    rtsp_url: ""
 
   planning:
     mode: mock

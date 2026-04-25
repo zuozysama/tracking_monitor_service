@@ -5,6 +5,7 @@ import time
 from fastapi.testclient import TestClient
 
 from app import app
+from services.task_service import task_service
 from store.collaboration_store import collaboration_store
 from store.situation_store import situation_store
 from store.task_store import task_store
@@ -124,48 +125,6 @@ class ApiContractTestCase(unittest.TestCase):
         output_body = output_resp.json()
         self.assertEqual(output_body["code"], 200)
         self.assertEqual(output_body["data"]["task_id"], task_id)
-
-    def test_media_stream_access_is_get(self):
-        task_id = "task-media-001"
-        now = datetime.now(timezone.utc).isoformat()
-        self.client.post(
-            "/api/v1/tasks",
-            json={
-                "task_id": task_id,
-                "task_type": "preplan",
-                "task_area": {
-                    "area_type": "polygon",
-                    "points": [
-                        {"longitude": 121.49, "latitude": 31.21},
-                        {"longitude": 121.52, "latitude": 31.21},
-                        {"longitude": 121.52, "latitude": 31.23},
-                    ],
-                },
-                "end_condition": {"duration_sec": 60},
-                "stream_media_param": {
-                    "photo_enabled": False,
-                    "video_enabled": False,
-                },
-                "update_interval_sec": 1,
-                "task_source": "test",
-                "task_name": "media-get",
-                "remark": now,
-            },
-        )
-
-        resp = self.client.get(
-            "/api/v1/media/stream/access",
-            params={
-                "task_id": task_id,
-                "stream_type": "optical_video",
-                "channel_id": "optical-001",
-                "media_protocol": "webrtc",
-            },
-        )
-        self.assertEqual(resp.status_code, 200)
-        body = resp.json()
-        self.assertEqual(body["code"], 200)
-        self.assertEqual(body["data"]["media_protocol"], "webrtc")
 
     def test_create_preplan_task_returns_preplan_result(self):
         task_id = "task-preplan-contract-001"
@@ -492,6 +451,238 @@ class ApiContractTestCase(unittest.TestCase):
         req_items = self.client.get("/mock/collaboration/manual-selection/requests").json()["data"]["items"]
         task_items = [x for x in req_items if x.get("task_id") == task_id]
         self.assertEqual(task_items, [])
+
+    def test_arrival_with_enable_optical_opens_optical(self):
+        self.assertEqual(self._post_ownship().status_code, 200)
+        targets = [
+            self._target("target-301", 301, 121.5350, 31.2220, threat_level=4, target_position_attr=3),
+        ]
+        self.assertEqual(self._post_targets(targets).status_code, 200)
+
+        task_id = "task-auto-optical-001"
+        create_resp = self.client.post(
+            "/api/v1/tasks",
+            json={
+                "task_id": task_id,
+                "task_type": "escort",
+                "task_area": {
+                    "area_type": "polygon",
+                    "points": [
+                        {"longitude": 121.48, "latitude": 31.20},
+                        {"longitude": 121.56, "latitude": 31.20},
+                        {"longitude": 121.56, "latitude": 31.26},
+                        {"longitude": 121.48, "latitude": 31.26},
+                    ],
+                },
+                "linkage_param": {
+                    "enable_optical": True,
+                },
+                "end_condition": {"duration_sec": 120},
+            },
+        )
+        self.assertEqual(create_resp.status_code, 200)
+
+        result_before = self.client.get(f"/api/v1/{task_id}/result")
+        self.assertEqual(result_before.status_code, 200)
+        recommended = result_before.json()["data"]["recommended_point"]
+        self.assertIsNotNone(recommended)
+
+        for _ in range(3):
+            nav_resp = self.client.post(
+                "/mock/dds/navigation",
+                json={
+                    "platform_id": 1001,
+                    "speed_mps": 6.2,
+                    "heading_deg": 90.0,
+                    "longitude": recommended["longitude"],
+                    "latitude": recommended["latitude"],
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+            self.assertEqual(nav_resp.status_code, 200)
+            task_service.tick_task(task_id)
+
+        result_after = self.client.get(f"/api/v1/{task_id}/result")
+        self.assertEqual(result_after.status_code, 200)
+        result_data = result_after.json()["data"]
+        self.assertIsNotNone(result_data.get("linkage_param"))
+        self.assertTrue(result_data["linkage_param"]["enable_optical"])
+        self.assertIsNotNone(result_data.get("optronic_status"))
+        self.assertTrue(result_data["optronic_status"]["is_power_on"])
+
+        cmd_logs_resp = self.client.get("/mock/collaboration/optical-linkage/commands")
+        self.assertEqual(cmd_logs_resp.status_code, 200)
+        task_cmds = [
+            item for item in cmd_logs_resp.json()["data"]["items"] if item.get("task_id") == task_id
+        ]
+        self.assertTrue(task_cmds)
+        self.assertEqual(task_cmds[-1].get("payload", {}).get("task_status"), 1)
+
+    def test_arrival_without_enable_optical_does_not_open_optical(self):
+        self.assertEqual(self._post_ownship().status_code, 200)
+        targets = [
+            self._target("target-302", 302, 121.5350, 31.2220, threat_level=4, target_position_attr=3),
+        ]
+        self.assertEqual(self._post_targets(targets).status_code, 200)
+
+        task_id = "task-auto-optical-002"
+        create_resp = self.client.post(
+            "/api/v1/tasks",
+            json={
+                "task_id": task_id,
+                "task_type": "escort",
+                "task_area": {
+                    "area_type": "polygon",
+                    "points": [
+                        {"longitude": 121.48, "latitude": 31.20},
+                        {"longitude": 121.56, "latitude": 31.20},
+                        {"longitude": 121.56, "latitude": 31.26},
+                        {"longitude": 121.48, "latitude": 31.26},
+                    ],
+                },
+                "end_condition": {"duration_sec": 120},
+            },
+        )
+        self.assertEqual(create_resp.status_code, 200)
+
+        result_before = self.client.get(f"/api/v1/{task_id}/result")
+        self.assertEqual(result_before.status_code, 200)
+        recommended = result_before.json()["data"]["recommended_point"]
+        self.assertIsNotNone(recommended)
+
+        for _ in range(3):
+            nav_resp = self.client.post(
+                "/mock/dds/navigation",
+                json={
+                    "platform_id": 1001,
+                    "speed_mps": 6.2,
+                    "heading_deg": 90.0,
+                    "longitude": recommended["longitude"],
+                    "latitude": recommended["latitude"],
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+            self.assertEqual(nav_resp.status_code, 200)
+            task_service.tick_task(task_id)
+
+        result_after = self.client.get(f"/api/v1/{task_id}/result")
+        self.assertEqual(result_after.status_code, 200)
+        result_data = result_after.json()["data"]
+        self.assertIsNone(result_data.get("linkage_param"))
+        self.assertIsNone(result_data.get("optronic_status"))
+
+        cmd_logs_resp = self.client.get("/mock/collaboration/optical-linkage/commands")
+        self.assertEqual(cmd_logs_resp.status_code, 200)
+        task_cmds = [
+            item for item in cmd_logs_resp.json()["data"]["items"] if item.get("task_id") == task_id
+        ]
+        self.assertEqual(task_cmds, [])
+
+    def test_manual_selection_type_only_constraint_uses_type_filter_only_and_caps_four(self):
+        self.assertEqual(self._post_ownship().status_code, 200)
+        targets = [
+            self._target("target-105", 105, 121.5005, 31.2205, threat_level=5, target_position_attr=3, target_type_code=40),
+            self._target("target-102", 102, 121.5300, 31.2220, threat_level=2, target_position_attr=3, target_type_code=40),
+            self._target("target-104", 104, 121.5150, 31.2230, threat_level=4, target_position_attr=3, target_type_code=40),
+            self._target("target-101", 101, 121.5400, 31.2240, threat_level=1, target_position_attr=3, target_type_code=40),
+            self._target("target-103", 103, 121.5120, 31.2205, threat_level=3, target_position_attr=3, target_type_code=40),
+            self._target("target-999", 999, 121.5120, 31.2210, threat_level=5, target_position_attr=3, target_type_code=106),
+        ]
+        self.assertEqual(self._post_targets(targets).status_code, 200)
+
+        task_id = "task-manual-type-only-001"
+        create_resp = self.client.post(
+            "/api/v1/tasks",
+            json={
+                "task_id": task_id,
+                "task_type": "escort",
+                "task_area": {
+                    "area_type": "polygon",
+                    "points": [
+                        {"longitude": 121.48, "latitude": 31.20},
+                        {"longitude": 121.56, "latitude": 31.20},
+                        {"longitude": 121.56, "latitude": 31.26},
+                        {"longitude": 121.48, "latitude": 31.26},
+                    ],
+                },
+                "target_info": {
+                    "target_type_code": 40,
+                },
+                "end_condition": {"duration_sec": 120},
+            },
+        )
+        self.assertEqual(create_resp.status_code, 200)
+
+        def _has_manual_selection_request() -> bool:
+            req_resp = self.client.get("/mock/collaboration/manual-selection/requests")
+            if req_resp.status_code != 200:
+                return False
+            items = req_resp.json()["data"]["items"]
+            return any(item.get("task_id") == task_id for item in items)
+
+        self.assertTrue(self._wait_until(_has_manual_selection_request))
+        req_items = self.client.get("/mock/collaboration/manual-selection/requests").json()["data"]["items"]
+        task_items = [x for x in req_items if x.get("task_id") == task_id]
+        self.assertTrue(task_items)
+        latest_req = task_items[-1]
+        candidates = latest_req.get("candidate_targets", [])
+        candidate_ids = [item.get("target_id") for item in candidates]
+        candidate_types = [item.get("target_type_code") for item in candidates]
+        self.assertEqual(len(candidates), 4)
+        self.assertEqual(candidate_types, [40, 40, 40, 40])
+        self.assertEqual(candidate_ids, ["target-101", "target-102", "target-103", "target-104"])
+
+    def test_manual_selection_threat_only_constraint_filters_exact_threat_level(self):
+        self.assertEqual(self._post_ownship().status_code, 200)
+        targets = [
+            self._target("target-201", 201, 121.5300, 31.2205, threat_level=3, target_position_attr=3, target_type_code=106),
+            self._target("target-202", 202, 121.5310, 31.2205, threat_level=3, target_position_attr=3, target_type_code=107),
+            self._target("target-203", 203, 121.5320, 31.2205, threat_level=4, target_position_attr=3, target_type_code=106),
+            self._target("target-204", 204, 121.5330, 31.2205, threat_level=2, target_position_attr=3, target_type_code=108),
+            self._target("target-205", 205, 121.5340, 31.2205, threat_level=3, target_position_attr=3, target_type_code=105),
+        ]
+        self.assertEqual(self._post_targets(targets).status_code, 200)
+
+        task_id = "task-manual-threat-only-001"
+        create_resp = self.client.post(
+            "/api/v1/tasks",
+            json={
+                "task_id": task_id,
+                "task_type": "escort",
+                "task_area": {
+                    "area_type": "polygon",
+                    "points": [
+                        {"longitude": 121.48, "latitude": 31.20},
+                        {"longitude": 121.56, "latitude": 31.20},
+                        {"longitude": 121.56, "latitude": 31.26},
+                        {"longitude": 121.48, "latitude": 31.26},
+                    ],
+                },
+                "target_info": {
+                    "threat_level": 3,
+                },
+                "end_condition": {"duration_sec": 120},
+            },
+        )
+        self.assertEqual(create_resp.status_code, 200)
+
+        def _has_manual_selection_request() -> bool:
+            req_resp = self.client.get("/mock/collaboration/manual-selection/requests")
+            if req_resp.status_code != 200:
+                return False
+            items = req_resp.json()["data"]["items"]
+            return any(item.get("task_id") == task_id for item in items)
+
+        self.assertTrue(self._wait_until(_has_manual_selection_request))
+        req_items = self.client.get("/mock/collaboration/manual-selection/requests").json()["data"]["items"]
+        task_items = [x for x in req_items if x.get("task_id") == task_id]
+        self.assertTrue(task_items)
+        latest_req = task_items[-1]
+        candidates = latest_req.get("candidate_targets", [])
+        candidate_ids = [item.get("target_id") for item in candidates]
+        candidate_threats = [item.get("threat_level") for item in candidates]
+        self.assertEqual(candidate_threats, [3, 3, 3])
+        self.assertEqual(candidate_ids, ["target-201", "target-202", "target-205"])
 
     def test_task_debug_candidates_endpoint_contains_rank_key_fields(self):
         self.assertEqual(self._post_ownship().status_code, 200)

@@ -14,6 +14,7 @@ services:
       DDS_MODE: "mock"
       DDS_CONFIG_PATH: "config/dds_settings.yaml"
       FFMPEG_BIN: "ffmpeg"
-      MEDIA_OUTPUT_DIR: "artifacts/media"
+      MEDIA_OUTPUT_DIR: "/app/media"
+      MEDIA_RTSP_URL: "rtsp://admin:1qaz2wsx,.@172.16.10.114:544/Streaming/Chanals/101"
     volumes:
-      - ./artifacts/media:/app/artifacts/media
+      - ./artifacts/media:/app/media

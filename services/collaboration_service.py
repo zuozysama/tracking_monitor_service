@@ -32,7 +32,6 @@ from domain.models import (
     GeoPoint,
     ManualSelectionRequest,
     ManualSwitchRequest,
-    MediaStreamAccessRequest,
     OpticalLinkageCommand,
     OptronicStatus,
     OwnShipState,
@@ -121,9 +120,55 @@ class CollaborationService:
         distance_m = self._safe_float(distance_raw, float("inf")) if distance_raw is not None else float("inf")
         return (-float(threat_level), -value_score, -target_length_m, distance_m)
 
+    @staticmethod
+    def _is_type_or_threat_only_manual_selection_mode(task: TaskContext) -> bool:
+        info = task.target_info
+        if info is None:
+            return False
+        if info.target_batch_no is not None:
+            return False
+        if info.target_name not in {None, ""}:
+            return False
+        if info.target_id not in {None, ""}:
+            return False
+        if info.target_type_code is None and info.threat_level is None:
+            return False
+        if (
+            info.enemy_friend_attr is not None
+            or info.military_civil_attr is not None
+            or info.target_position_attr is not None
+            or info.target_length_m is not None
+        ):
+            return False
+        return True
+
+    @staticmethod
+    def _manual_selection_non_rank_key(item: dict) -> tuple[float, str]:
+        batch_no = item.get("target_batch_no")
+        if batch_no is None:
+            batch_key = float("inf")
+        else:
+            try:
+                batch_key = float(int(batch_no))
+            except Exception:
+                batch_key = float("inf")
+        target_id = str(item.get("target_id") or "")
+        return batch_key, target_id
+
     def _build_manual_selection_candidates(self, task: TaskContext) -> list[TargetInfo]:
         candidates = task.candidate_targets or []
         top_candidates = candidates[:4]
+        if self._is_type_or_threat_only_manual_selection_mode(task):
+            info = task.target_info
+            filtered = []
+            for item in candidates:
+                if info.target_type_code is not None and item.get("target_type_code") != info.target_type_code:
+                    continue
+                if info.threat_level is not None and item.get("threat_level") != info.threat_level:
+                    continue
+                filtered.append(item)
+            filtered.sort(key=self._manual_selection_non_rank_key)
+            top_candidates = filtered[:4]
 
         result: list[TargetInfo] = []
         for item in top_candidates:
@@ -622,16 +667,6 @@ class CollaborationService:
             ELECTRO_OPTICAL_LINKAGE_CMD_TOPIC,
             payload.model_dump(mode="json"),
         )
-        if task_status == 1:
-            media_client.get_stream_access(
-                MediaStreamAccessRequest(
-                    task_id=task.task_id,
-                    stream_type="optical_video",
-                    channel_id="optical-001",
-                    media_protocol="webrtc",
-                    request_time=utc_now(),
-                )
-            )
         task.last_optical_dispatch_signature = signature
         task.optronic_status = OptronicStatus(
             is_power_on=(task_status == 1),

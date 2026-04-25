@@ -134,16 +134,7 @@ Step "查询 tracking 正式输出"
 Invoke-JsonGet "$BaseUrl/tasks/task-tracking-001/output"
 
 Step "获取视频流接入信息"
-$streamAccess = @'
-{
-  "task_id": "task-tracking-001",
-  "stream_type": "optical_video",
-  "channel_id": "optical-001",
-  "media_protocol": "webrtc",
-  "request_time": "2026-03-24T10:01:20Z"
-}
-'@
-Invoke-JsonPost "$BaseUrl/media/stream/access" $streamAccess
+Write-Host "Skip /media/stream/access: use MEDIA_RTSP_URL or EXTERNAL_MEDIA_RTSP_URL for direct RTSP input."
 
 Step "发起人工筛选请求"
 $manualSelectionRequest = @'

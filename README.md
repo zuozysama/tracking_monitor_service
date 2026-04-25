@@ -70,6 +70,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\run_pub_test.ps1
 
 - `FFMPEG_BIN`：ffmpeg 可执行程序路径（默认 `ffmpeg`）
 - `MEDIA_OUTPUT_DIR`：输出目录（默认 `artifacts/media`）
+- `MEDIA_RTSP_URL`：直接拉流地址（优先级高于配置文件）
 
 启动后可访问：
 
@@ -95,7 +96,6 @@ powershell -ExecutionPolicy Bypass -File .\scripts\run_pub_test.ps1
 
 - `POST /api/v1/tasks`
 - `POST /api/v1/tasks/{task_id}/terminate`
-- `GET /api/v1/media/stream/access`
 - `POST /api/v1/manual_selection/feedback`
 - `POST /api/v1/manual_switch/feedback`
 
@@ -123,7 +123,6 @@ powershell -ExecutionPolicy Bypass -File .\scripts\run_pub_test.ps1
 - `GET /mock/collaboration/planning/plans`
 - `GET /mock/collaboration/media/photos`
 - `GET /mock/collaboration/media/videos`
-- `GET /mock/collaboration/media/stream-access`
 - `GET /mock/collaboration/manual-selection/requests`
 - `GET /mock/collaboration/manual-switch/requests`
 - `GET /mock/collaboration/manual-selection/feedbacks`
@@ -303,12 +302,6 @@ curl -X POST http://127.0.0.1:8080/api/v1/tasks/task-tracking-001/terminate \
   }'
 ```
 
-### 获取视频流接入信息
-
-```bash
-curl -X GET "http://127.0.0.1:8080/api/v1/media/stream/access?task_id=task-tracking-001&stream_type=optical_video&channel_id=optical-001&media_protocol=webrtc"
-```
-
 ### 人工筛选请求（DDS 发布）
 
 通过任务运行自动触发 manual_selection_request_topic，可通过以下接口查看模拟发布日志：
@@ -413,6 +406,4 @@ Invoke-RestMethod `
 - 将 mock 日志持久化到 Redis 或数据库
 - 增加接口测试用例与任务场景回归测试
 - 增加 Dockerfile、启动脚本和麒麟系统部署说明
-
-
 

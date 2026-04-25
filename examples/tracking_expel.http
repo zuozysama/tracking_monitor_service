@@ -175,7 +175,7 @@ GET {{baseUrl}}/mock/dds/situation
 GET {{baseUrl}}/mock/collaboration/optical-linkage/commands
 
 ### 13. Inspect media stream access logs
-GET {{baseUrl}}/mock/collaboration/media/stream-access
+GET {{baseUrl}}/mock/collaboration/media/videos
 
 ### 14. Inspect task result
 GET {{baseUrl}}/api/v1/tasks/{{taskId}}/result

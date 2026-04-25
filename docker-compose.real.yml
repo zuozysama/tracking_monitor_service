@@ -21,8 +21,9 @@ services:
       DDS_LICENSE_FILE: "/app/thirdparty/ljdds/DDSCore3.0.1/ljddslicense.lic"
       DDS_LIB_DIR: "/app/thirdparty/ljdds/DDSCore3.0.1/lib/ft2000KylinV10GFgcc9.3.0"
       FFMPEG_BIN: "ffmpeg"
-      MEDIA_OUTPUT_DIR: "artifacts/media"
+      MEDIA_OUTPUT_DIR: "/app/media"
+      MEDIA_RTSP_URL: "rtsp://admin:1qaz2wsx,.@172.16.10.114:544/Streaming/Chanals/101"
     volumes:
       - ./config:/app/config:ro
-      - ./artifacts/media:/app/artifacts/media
+      - ./artifacts/media:/app/media
     command: ["sh", "/app/docker-entrypoint-dds.sh"]

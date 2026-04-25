@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 from domain.models import OpticalLinkageCommand, OptronicStatus, SonarMatchStatus
 
@@ -9,7 +9,6 @@ class CollaborationStore:
         self._optronic_status_by_task: Dict[str, OptronicStatus] = {}
         self._photo_logs: List[dict] = []
         self._video_logs: List[dict] = []
-        self._media_stream_access_logs: List[dict] = []
         self._planning_stage_logs: List[dict] = []
         self._planning_plan_logs: List[dict] = []
         self._sonar_status_by_task: Dict[str, SonarMatchStatus] = {}
@@ -42,9 +41,6 @@ class CollaborationStore:
     def append_video_log(self, item: dict) -> None:
         self._video_logs.append(item)
 
-    def append_media_stream_access_log(self, item: dict) -> None:
-        self._media_stream_access_logs.append(item)
-
     def append_stage_log(self, item: dict) -> None:
         self._planning_stage_logs.append(item)
 
@@ -56,16 +52,6 @@ class CollaborationStore:
 
     def get_video_logs(self) -> List[dict]:
         return self._video_logs
-
-    def get_media_stream_access_logs(self) -> List[dict]:
-        return self._media_stream_access_logs
-
-    def get_latest_stream_access_by_task(self, task_id: str) -> Optional[dict]:
-        for item in reversed(self._media_stream_access_logs):
-            request = item.get("request") or {}
-            if request.get("task_id") == task_id:
-                return item
-        return None
 
     def get_stage_logs(self) -> List[dict]:
         return self._planning_stage_logs
@@ -149,7 +135,6 @@ class CollaborationStore:
         self._optronic_status_by_task.clear()
         self._photo_logs.clear()
         self._video_logs.clear()
-        self._media_stream_access_logs.clear()
         self._planning_stage_logs.clear()
         self._planning_plan_logs.clear()
         self._sonar_status_by_task.clear()

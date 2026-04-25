@@ -34,11 +34,6 @@ def get_video_logs():
     return ok({"items": collaboration_store.get_video_logs()})
 
 
-@router.get("/media/stream-access")
-def get_media_stream_access_logs():
-    return ok({"items": collaboration_store.get_media_stream_access_logs()})
-
-
 @router.get("/planning/stages")
 def get_stage_logs():
     return ok({"items": collaboration_store.get_stage_logs()})

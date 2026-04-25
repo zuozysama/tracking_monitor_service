@@ -74,6 +74,7 @@ class ExternalServiceEndpointConfig(BaseModel):
     mode: str = "mock"
     base_url: str = ""
     timeout_sec: float = 3.0
+    rtsp_url: str = ""
 
 
 class ExternalServicesConfig(BaseModel):
@@ -228,6 +229,10 @@ def _apply_external_service_env_overrides(merged: Dict[str, Any]) -> Dict[str, A
         timeout_sec = _get_env_float(f"{prefix}_TIMEOUT_SEC")
         if timeout_sec is not None:
             section["timeout_sec"] = timeout_sec
+
+        rtsp_url = _get_env_str(f"{prefix}_RTSP_URL")
+        if rtsp_url is not None:
+            section["rtsp_url"] = rtsp_url
 
         external_services[service_name] = section
 

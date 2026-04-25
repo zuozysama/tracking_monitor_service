@@ -278,7 +278,7 @@ Content-Type: {{json}}
 GET {{baseUrl}}/mock/collaboration/optical-linkage/commands
 
 ### 15. Inspect media stream access logs
-GET {{baseUrl}}/mock/collaboration/media/stream-access
+GET {{baseUrl}}/mock/collaboration/media/videos
 
 ### 16. Cleanup task
 POST {{baseUrl}}/api/v1/tasks/{{taskId}}/terminate

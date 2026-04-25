@@ -168,6 +168,8 @@ def _target_attribute_hard_filter(target: TargetState, constraint: Optional[Targ
 
     if constraint.target_type_code is not None and target.target_type_code != constraint.target_type_code:
         return False
+    if constraint.threat_level is not None and target.threat_level != constraint.threat_level:
+        return False
     if constraint.enemy_friend_attr is not None and target.enemy_friend_attr != constraint.enemy_friend_attr:
         return False
     if constraint.military_civil_attr is not None and target.military_civil_attr != constraint.military_civil_attr:
