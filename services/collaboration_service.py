@@ -1,5 +1,6 @@
 import json
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Optional, Union
 
 from adapters.dds import get_dds_adapter
@@ -64,6 +65,80 @@ class CollaborationService:
     @staticmethod
     def _is_tracking_task_type(task_type: TaskType) -> bool:
         return task_type in {TaskType.ESCORT, TaskType.INTERCEPT, TaskType.EXPEL}
+
+    @staticmethod
+    def _stream_media_task_type_code(task_type: TaskType) -> int:
+        if task_type == TaskType.PATROL:
+            return 1
+        if task_type in {TaskType.ESCORT, TaskType.INTERCEPT, TaskType.EXPEL}:
+            return 2
+        if task_type == TaskType.FIXED_TRACKING:
+            return 3
+        if task_type == TaskType.UNDERWATER_SEARCH:
+            return 4
+        if task_type == TaskType.PREPLAN:
+            return 5
+        return 0
+
+    def _build_stream_media_payload(
+        self,
+        task: TaskContext,
+        media,
+        media_result: dict,
+        media_event_type: int,
+        media_type: int,
+    ) -> dict:
+        file_path = str(media_result.get("file_path") or "")
+        file_name = ""
+        file_format = ""
+        file_size_kb = 0
+
+        if file_path:
+            file_obj = Path(file_path)
+            file_name = file_obj.name
+            file_format = file_obj.suffix.lstrip(".")
+            try:
+                if file_obj.exists() and file_obj.is_file():
+                    file_size_kb = max(0, (file_obj.stat().st_size + 1023) // 1024)
+            except Exception:
+                file_size_kb = 0
+
+        capture_time = utc_now()
+        capture_time_sec = int(capture_time.timestamp())
+        capture_time_msec = int(capture_time.microsecond / 1000)
+
+        evidence_id = str(media_result.get("evidence_id") or "").strip()
+        if not evidence_id:
+            suffix = "photo" if media_type == 1 else "video"
+            evidence_id = f"{task.task_id}-{suffix}-{capture_time_sec}{capture_time_msec:03d}"
+
+        snapshot_url = str(media_result.get("snapshot_url") or "")
+        if not snapshot_url and media_type == 1:
+            snapshot_url = file_path
+
+        return {
+            "task_id": task.task_id,
+            "task_type": self._stream_media_task_type_code(task.task_type),
+            "media_event_type": media_event_type,
+            "media_type": media_type,
+            "media_status": 3 if media_result.get("success") else 4,
+            "channel_id": str(media_result.get("channel_id") or ""),
+            "stream_type": 1,
+            "evidence_id": evidence_id,
+            "file_name": file_name,
+            "file_format": file_format,
+            "file_size_kb": file_size_kb,
+            "capture_time_sec": capture_time_sec,
+            "capture_time_msec": capture_time_msec,
+            "target_batch_no": task.current_target_batch_no or 0,
+            "photo_interval_sec": int(media.photo_interval_sec or 0) if media_type == 1 else 0,
+            "video_interval_sec": int(media.video_interval_sec or 0) if media_type == 2 else 0,
+            "video_duration_sec": int(media.video_duration_sec or 0) if media_type == 2 else 0,
+            "enable_evidence": 1 if (task.linkage_param and task.linkage_param.enable_evidence) else 0,
+            "reserved0": 0,
+            "media_access_path": file_path,
+            "snapshot_url": snapshot_url,
+        }
 
     def _publish_dds(self, topic: str, payload: dict) -> None:
         dds_adapter.publish(topic=topic, payload=payload)
@@ -718,15 +793,13 @@ class CollaborationService:
                 task.last_photo_time = utc_now()
                 self._publish_dds(
                     STREAM_MEDIA_PARAM_TOPIC,
-                    {
-                        "task_id": task.task_id,
-                        "task_type": TASK_TYPE_CODE_MAP.get(task.task_type, 0),
-                        "media_event_type": 1,
-                        "media_type": 1,
-                        "media_status": 3 if photo_result.get("success") else 4,
-                        "media_access_path": photo_result.get("file_path", ""),
-                        "snapshot_url": photo_result.get("file_path", ""),
-                    },
+                    self._build_stream_media_payload(
+                        task=task,
+                        media=media,
+                        media_result=photo_result,
+                        media_event_type=1,
+                        media_type=1,
+                    ),
                 )
 
         if media.video_enabled:
@@ -736,15 +809,13 @@ class CollaborationService:
                 task.last_video_time = utc_now()
                 self._publish_dds(
                     STREAM_MEDIA_PARAM_TOPIC,
-                    {
-                        "task_id": task.task_id,
-                        "task_type": TASK_TYPE_CODE_MAP.get(task.task_type, 0),
-                        "media_event_type": 2,
-                        "media_type": 2,
-                        "media_status": 3 if video_result.get("success") else 4,
-                        "media_access_path": video_result.get("file_path", ""),
-                        "snapshot_url": "",
-                    },
+                    self._build_stream_media_payload(
+                        task=task,
+                        media=media,
+                        media_result=video_result,
+                        media_event_type=2,
+                        media_type=2,
+                    ),
                 )
 
         task_store.update_task(task)

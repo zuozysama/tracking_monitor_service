@@ -6,6 +6,7 @@ from domain.dds_contract import (
     MANUAL_SELECTION_REQUEST_TOPIC,
     MANUAL_SWITCH_REQUEST_TOPIC,
     OWNSHIP_NAVIGATION_TOPIC,
+    STREAM_MEDIA_PARAM_TOPIC,
     TARGET_PERCEPTION_TOPIC,
     TASK_UPDATE_TOPIC,
 )
@@ -387,6 +388,108 @@ class TopicCodecDecodeTestCase(unittest.TestCase):
         self.assertEqual(decoded["waypoint_count"], 6)
         self.assertEqual(decoded["finish_reason"], 4)
         self.assertEqual(decoded["decode_format"], "task_update_21_plus_100_fields")
+
+    def test_encode_stream_media_21_plus_869(self):
+        body = encode_topic_payload(
+            STREAM_MEDIA_PARAM_TOPIC,
+            {
+                "protocol_type": 0,
+                "protocol_version": 1,
+                "msg_type": 4,
+                "msg_seq": 66,
+                "reserve": 0,
+                "timestamp_0p1ms": 999,
+                "task_id": "task-media-001",
+                "task_type": 2,
+                "media_event_type": 1,
+                "media_type": 1,
+                "media_status": 3,
+                "channel_id": "optical-main",
+                "stream_type": 1,
+                "evidence_id": "ev-001",
+                "file_name": "shot_001.jpg",
+                "file_format": "jpg",
+                "file_size_kb": 321,
+                "capture_time_sec": 1700000000,
+                "capture_time_msec": 123,
+                "target_batch_no": 888,
+                "photo_interval_sec": 5,
+                "video_interval_sec": 0,
+                "video_duration_sec": 0,
+                "enable_evidence": 1,
+                "reserved0": 0,
+                "media_access_path": "/media/task-media-001/shot_001.jpg",
+                "snapshot_url": "/media/task-media-001/shot_001_thumb.jpg",
+            },
+        )
+
+        self.assertEqual(len(body), 890)
+        protocol_type, version, packet_len, msg_type, seq, reserve, ts_0p1ms = struct.unpack(">IBHBIBQ", body[:21])
+        self.assertEqual(protocol_type, 0)
+        self.assertEqual(version, 1)
+        self.assertEqual(packet_len, 890)
+        self.assertEqual(msg_type, 4)
+        self.assertEqual(seq, 66)
+        self.assertEqual(reserve, 0)
+        self.assertEqual(ts_0p1ms, 999)
+
+        decoded = decode_topic_payload(STREAM_MEDIA_PARAM_TOPIC, body)
+        self.assertEqual(decoded["decode_format"], "stream_media_param_21_plus_869_fields")
+        self.assertEqual(decoded["task_id"], "task-media-001")
+        self.assertEqual(decoded["task_type"], 2)
+        self.assertEqual(decoded["media_event_type"], 1)
+        self.assertEqual(decoded["media_type"], 1)
+        self.assertEqual(decoded["media_status"], 3)
+        self.assertEqual(decoded["channel_id"], "optical-main")
+        self.assertEqual(decoded["stream_type"], 1)
+        self.assertEqual(decoded["evidence_id"], "ev-001")
+        self.assertEqual(decoded["file_name"], "shot_001.jpg")
+        self.assertEqual(decoded["file_format"], "jpg")
+        self.assertEqual(decoded["file_size_kb"], 321)
+        self.assertEqual(decoded["capture_time_sec"], 1700000000)
+        self.assertEqual(decoded["capture_time_msec"], 123)
+        self.assertEqual(decoded["target_batch_no"], 888)
+        self.assertEqual(decoded["photo_interval_sec"], 5)
+        self.assertEqual(decoded["video_interval_sec"], 0)
+        self.assertEqual(decoded["video_duration_sec"], 0)
+        self.assertEqual(decoded["enable_evidence"], 1)
+        self.assertEqual(decoded["media_access_path"], "/media/task-media-001/shot_001.jpg")
+        self.assertEqual(decoded["snapshot_url"], "/media/task-media-001/shot_001_thumb.jpg")
+
+    def test_decode_stream_media_869_without_common_header_compatible(self):
+        body = encode_topic_payload(
+            STREAM_MEDIA_PARAM_TOPIC,
+            {
+                "task_id": "task-media-002",
+                "task_type": 3,
+                "media_event_type": 2,
+                "media_type": 2,
+                "media_status": 4,
+                "channel_id": "optical-sub",
+                "stream_type": 1,
+                "evidence_id": "ev-002",
+                "file_name": "clip_001.mp4",
+                "file_format": "mp4",
+                "file_size_kb": 2048,
+                "capture_time_sec": 1700000010,
+                "capture_time_msec": 456,
+                "target_batch_no": 999,
+                "photo_interval_sec": 0,
+                "video_interval_sec": 15,
+                "video_duration_sec": 10,
+                "enable_evidence": 0,
+                "reserved0": 0,
+                "media_access_path": "/media/task-media-002/clip_001.mp4",
+                "snapshot_url": "",
+            },
+        )
+        decoded = decode_topic_payload(STREAM_MEDIA_PARAM_TOPIC, body[21:])
+        self.assertEqual(decoded["decode_format"], "stream_media_param_869_fields")
+        self.assertEqual(decoded["task_id"], "task-media-002")
+        self.assertEqual(decoded["task_type"], 3)
+        self.assertEqual(decoded["media_type"], 2)
+        self.assertEqual(decoded["video_interval_sec"], 15)
+        self.assertEqual(decoded["video_duration_sec"], 10)
 
     def test_encode_manual_selection_21_plus_fields(self):
         body = encode_topic_payload(

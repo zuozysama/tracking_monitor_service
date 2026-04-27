@@ -29,6 +29,8 @@ COMMON_HEADER_FMT = ">IBHBIBQ"
 COMMON_HEADER_LEN = struct.calcsize(COMMON_HEADER_FMT)
 TASK_UPDATE_BUSINESS_FMT = ">64sBBBBBIIHHHB16s"
 TASK_UPDATE_BUSINESS_LEN = struct.calcsize(TASK_UPDATE_BUSINESS_FMT)
+STREAM_MEDIA_BUSINESS_FMT = ">64sBBBB32sB64s128s8sIIIIHHHBB256s256s32s"
+STREAM_MEDIA_BUSINESS_LEN = struct.calcsize(STREAM_MEDIA_BUSINESS_FMT)
 NAV_TIMESTAMP_MS_RAW_MAX = 999_999_999
 
 
@@ -707,17 +709,56 @@ def encode_topic_payload(topic: str, payload: dict) -> bytes:
         )
 
     if topic == STREAM_MEDIA_PARAM_TOPIC:
-        return struct.pack(
-            ">64sBBBB256s256s32s",
+        protocol_type = _u32(payload.get("protocol_type", 0))
+        version = _u8(payload.get("protocol_version", payload.get("version", 1)))
+        msg_type = _u8(payload.get("msg_type", 1))
+        seq = _u32(payload.get("msg_seq", payload.get("seq", 1)))
+        reserve = _u8(payload.get("reserve", 0))
+        ts_0p1ms = _nav_timestamp_0p1ms_from_day_start(payload)
+
+        reserved = payload.get("reserved")
+        if isinstance(reserved, (bytes, bytearray)):
+            reserved_raw = bytes(reserved[:32]).ljust(32, b"\x00")
+        else:
+            reserved_raw = b"\x00" * 32
+
+        business = struct.pack(
+            STREAM_MEDIA_BUSINESS_FMT,
             _fit_ascii(str(payload.get("task_id") or ""), 64),
             _u16(payload.get("task_type", 0)) & 0xFF,
             _u16(payload.get("media_event_type", 0)) & 0xFF,
             _u16(payload.get("media_type", 0)) & 0xFF,
             _u16(payload.get("media_status", 0)) & 0xFF,
+            _fit_ascii(str(payload.get("channel_id") or ""), 32),
+            _u16(payload.get("stream_type", 0)) & 0xFF,
+            _fit_ascii(str(payload.get("evidence_id") or ""), 64),
+            _fit_ascii(str(payload.get("file_name") or ""), 128),
+            _fit_ascii(str(payload.get("file_format") or ""), 8),
+            _u32(payload.get("file_size_kb", 0)),
+            _u32(payload.get("capture_time_sec", 0)),
+            _u32(payload.get("capture_time_msec", 0)),
+            _u32(payload.get("target_batch_no", 0)),
+            _u16(payload.get("photo_interval_sec", 0)),
+            _u16(payload.get("video_interval_sec", 0)),
+            _u16(payload.get("video_duration_sec", 0)),
+            _u16(payload.get("enable_evidence", 0)) & 0xFF,
+            _u16(payload.get("reserved0", 0)) & 0xFF,
             _fit_ascii(str(payload.get("media_access_path") or ""), 256),
             _fit_ascii(str(payload.get("snapshot_url") or ""), 256),
-            b"\x00" * 32,
+            reserved_raw,
         )
+        packet_len = COMMON_HEADER_LEN + STREAM_MEDIA_BUSINESS_LEN
+        header = struct.pack(
+            COMMON_HEADER_FMT,
+            protocol_type,
+            version,
+            packet_len,
+            msg_type,
+            seq,
+            reserve,
+            ts_0p1ms,
+        )
+        return header + business
 
     return str(payload).encode("utf-8")
 
@@ -1132,6 +1173,106 @@ def decode_topic_payload(topic: str, body: bytes) -> dict:
                 {
                     "decode_format": "task_update_100_fields",
                     "input_layout": "doc100",
+                }
+            )
+
+        return result
+
+    if topic == STREAM_MEDIA_PARAM_TOPIC:
+        common_offset, common_ts = _parse_common_header(body)
+        payload = body[common_offset:] if common_offset else body
+        if common_offset and len(payload) < STREAM_MEDIA_BUSINESS_LEN and len(body) >= STREAM_MEDIA_BUSINESS_LEN:
+            # Backward compatibility: if header auto-detection is a false positive,
+            # retry as pure 869-byte business payload.
+            common_offset = 0
+            common_ts = None
+            payload = body
+        if len(payload) < STREAM_MEDIA_BUSINESS_LEN:
+            return {
+                "raw_hex": body.hex(),
+                "decode_error": (
+                    f"stream_media_param payload too short: got {len(payload)} bytes, "
+                    f"need at least {STREAM_MEDIA_BUSINESS_LEN}"
+                ),
+            }
+
+        (
+            task_id_raw,
+            task_type,
+            media_event_type,
+            media_type,
+            media_status,
+            channel_id_raw,
+            stream_type,
+            evidence_id_raw,
+            file_name_raw,
+            file_format_raw,
+            file_size_kb,
+            capture_time_sec,
+            capture_time_msec,
+            target_batch_no,
+            photo_interval_sec,
+            video_interval_sec,
+            video_duration_sec,
+            enable_evidence,
+            reserved0,
+            media_access_path_raw,
+            snapshot_url_raw,
+            reserved_raw,
+        ) = struct.unpack(STREAM_MEDIA_BUSINESS_FMT, payload[:STREAM_MEDIA_BUSINESS_LEN])
+
+        result = {
+            "task_id": _decode_utf8_cstr(task_id_raw),
+            "task_type": int(task_type),
+            "media_event_type": int(media_event_type),
+            "media_type": int(media_type),
+            "media_status": int(media_status),
+            "channel_id": _decode_utf8_cstr(channel_id_raw),
+            "stream_type": int(stream_type),
+            "evidence_id": _decode_utf8_cstr(evidence_id_raw),
+            "file_name": _decode_utf8_cstr(file_name_raw),
+            "file_format": _decode_utf8_cstr(file_format_raw),
+            "file_size_kb": int(file_size_kb),
+            "capture_time_sec": int(capture_time_sec),
+            "capture_time_msec": int(capture_time_msec),
+            "target_batch_no": int(target_batch_no),
+            "photo_interval_sec": int(photo_interval_sec),
+            "video_interval_sec": int(video_interval_sec),
+            "video_duration_sec": int(video_duration_sec),
+            "enable_evidence": int(enable_evidence),
+            "reserved0": int(reserved0),
+            "media_access_path": _decode_utf8_cstr(media_access_path_raw),
+            "snapshot_url": _decode_utf8_cstr(snapshot_url_raw),
+            "reserved_hex": reserved_raw.hex(" "),
+            "timestamp": common_ts or _iso_utc_now(),
+            "raw_hex": payload[:STREAM_MEDIA_BUSINESS_LEN].hex(),
+            "raw_len": STREAM_MEDIA_BUSINESS_LEN,
+            "expected_raw_len": STREAM_MEDIA_BUSINESS_LEN,
+        }
+
+        if common_offset:
+            protocol_type, version, packet_len, msg_type, seq, reserve, ts_0p1ms = struct.unpack(
+                COMMON_HEADER_FMT, body[:COMMON_HEADER_LEN]
+            )
+            result.update(
+                {
+                    "protocol_type": int(protocol_type),
+                    "protocol_version": int(version),
+                    "packet_length": int(packet_len),
+                    "msg_type": int(msg_type),
+                    "msg_seq": int(seq),
+                    "reserve": int(reserve),
+                    "timestamp_0p1ms": int(ts_0p1ms),
+                    "inner_proto21_hex": body[:COMMON_HEADER_LEN].hex(" "),
+                    "decode_format": "stream_media_param_21_plus_869_fields",
+                    "input_layout": "doc890",
+                }
+            )
+        else:
+            result.update(
+                {
+                    "decode_format": "stream_media_param_869_fields",
+                    "input_layout": "doc869",
                 }
             )
 

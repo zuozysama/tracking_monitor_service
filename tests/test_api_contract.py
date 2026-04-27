@@ -166,6 +166,102 @@ class ApiContractTestCase(unittest.TestCase):
         self.assertEqual(first["point_type"], "start")
         self.assertEqual(first["eta_sec"], 0)
 
+    def test_create_new_task_auto_replaces_active_old_task(self):
+        old_task_id = "task-replace-old-001"
+        new_task_id = "task-replace-new-001"
+
+        old_create_resp = self.client.post(
+            "/api/v1/tasks",
+            json={
+                "task_id": old_task_id,
+                "task_type": "escort",
+                "task_area": {
+                    "area_type": "polygon",
+                    "points": [
+                        {"longitude": 121.49, "latitude": 31.21},
+                        {"longitude": 121.52, "latitude": 31.21},
+                        {"longitude": 121.52, "latitude": 31.23},
+                    ],
+                },
+                "end_condition": {"duration_sec": 300},
+            },
+        )
+        self.assertEqual(old_create_resp.status_code, 200)
+
+        new_create_resp = self.client.post(
+            "/api/v1/tasks",
+            json={
+                "task_id": new_task_id,
+                "task_type": "patrol",
+                "task_area": {
+                    "area_type": "polygon",
+                    "points": [
+                        {"longitude": 121.60, "latitude": 31.30},
+                        {"longitude": 121.63, "latitude": 31.30},
+                        {"longitude": 121.63, "latitude": 31.33},
+                    ],
+                },
+                "end_condition": {"duration_sec": 300},
+            },
+        )
+        self.assertEqual(new_create_resp.status_code, 200)
+
+        old_status_resp = self.client.get(f"/api/v1/{old_task_id}/status")
+        self.assertEqual(old_status_resp.status_code, 200)
+        old_status = old_status_resp.json()["data"]
+        self.assertEqual(old_status["task_status"], "terminated")
+        self.assertEqual(old_status["finish_reason"], "manual_terminated")
+        self.assertEqual(old_status["execution_phase"], "completed")
+
+    def test_create_new_task_replaces_old_even_if_manual_terminate_not_allowed(self):
+        old_task_id = "task-replace-disabled-old-001"
+        new_task_id = "task-replace-disabled-new-001"
+
+        old_create_resp = self.client.post(
+            "/api/v1/tasks",
+            json={
+                "task_id": old_task_id,
+                "task_type": "escort",
+                "task_area": {
+                    "area_type": "polygon",
+                    "points": [
+                        {"longitude": 121.49, "latitude": 31.21},
+                        {"longitude": 121.52, "latitude": 31.21},
+                        {"longitude": 121.52, "latitude": 31.23},
+                    ],
+                },
+                "end_condition": {
+                    "duration_sec": 300,
+                    "manual_terminate_allowed": False,
+                },
+            },
+        )
+        self.assertEqual(old_create_resp.status_code, 200)
+
+        new_create_resp = self.client.post(
+            "/api/v1/tasks",
+            json={
+                "task_id": new_task_id,
+                "task_type": "patrol",
+                "task_area": {
+                    "area_type": "polygon",
+                    "points": [
+                        {"longitude": 121.60, "latitude": 31.30},
+                        {"longitude": 121.63, "latitude": 31.30},
+                        {"longitude": 121.63, "latitude": 31.33},
+                    ],
+                },
+                "end_condition": {"duration_sec": 300},
+            },
+        )
+        self.assertEqual(new_create_resp.status_code, 200)
+
+        old_status_resp = self.client.get(f"/api/v1/{old_task_id}/status")
+        self.assertEqual(old_status_resp.status_code, 200)
+        old_status = old_status_resp.json()["data"]
+        self.assertEqual(old_status["task_status"], "terminated")
+        self.assertEqual(old_status["finish_reason"], "manual_terminated")
+
     def test_manual_feedback_contract(self):
         task_id = "task-manual-001"
         self.client.post(

@@ -60,9 +60,35 @@ class TaskService:
             return "failed"
         return status.value
 
+    def _terminate_task_for_replacement(self, task: TaskContext, new_task_id: str) -> None:
+        if task.status not in {TaskStatus.RUNNING, TaskStatus.WAITING_TARGET}:
+            return
+
+        replace_reason = f"replaced_by_new_task: {new_task_id}"
+        if task.remark:
+            task.remark = f"{task.remark}\n{replace_reason}"
+        else:
+            task.remark = replace_reason
+
+        now = utc_now()
+        task.status = TaskStatus.TERMINATED
+        task.finish_reason = FinishReason.MANUAL_TERMINATED
+        task.end_time = now
+        task.update_time = now
+        task.execution_phase = "completed"
+        task_store.update_task(task)
+        collaboration_service.on_task_finished(task)
+
+    def _terminate_active_tasks_before_create(self, new_task_id: str) -> None:
+        tasks = task_store.get_all_tasks()
+        for old_task in tasks:
+            self._terminate_task_for_replacement(old_task, new_task_id)
+
     def create_task(self, req: CreateTaskRequest) -> TaskContext:
         if task_store.exists(req.task_id):
             raise ValueError("task already exists")
+
+        self._terminate_active_tasks_before_create(req.task_id)
 
         now = utc_now()
         end_condition = req.end_condition or EndCondition()
