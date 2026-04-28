@@ -3,6 +3,44 @@ import os
 from config.settings import settings
 
 
+def _get_env_int(name: str, default: int, min_value: int | None = None) -> int:
+    raw = os.getenv(name, str(default)).strip()
+    try:
+        value = int(raw)
+    except Exception:
+        return default
+    if min_value is not None and value < min_value:
+        return default
+    return value
+
+
+def _get_env_float(name: str, default: float, min_value: float | None = None) -> float:
+    raw = os.getenv(name, str(default)).strip()
+    try:
+        value = float(raw)
+    except Exception:
+        return default
+    if min_value is not None and value < min_value:
+        return default
+    return value
+
+
+def _get_env_optional_float(name: str, min_value: float | None = None) -> float | None:
+    raw = os.getenv(name)
+    if raw is None:
+        return None
+    text = raw.strip()
+    if not text:
+        return None
+    try:
+        value = float(text)
+    except Exception:
+        return None
+    if min_value is not None and value < min_value:
+        return None
+    return value
+
+
 def get_fixed_tracking_default_radius_m() -> float:
     return settings.fixed_tracking.default_region_radius_m
 
@@ -12,15 +50,27 @@ def get_tracking_default_target_lost_timeout_sec() -> float:
 
 
 def get_tracking_escort_distance_m() -> float:
-    return settings.tracking.escort_distance_m
+    return _get_env_float(
+        "TRACKING_ESCORT_DISTANCE_M",
+        float(settings.tracking.escort_distance_m),
+        min_value=0.0,
+    )
 
 
 def get_tracking_intercept_distance_m() -> float:
-    return settings.tracking.intercept_distance_m
+    return _get_env_float(
+        "TRACKING_INTERCEPT_DISTANCE_M",
+        float(settings.tracking.intercept_distance_m),
+        min_value=0.0,
+    )
 
 
 def get_tracking_expel_distance_m() -> float:
-    return settings.tracking.expel_distance_m
+    return _get_env_float(
+        "TRACKING_EXPEL_DISTANCE_M",
+        float(settings.tracking.expel_distance_m),
+        min_value=0.0,
+    )
 
 
 def get_tracking_manual_selection_timeout_sec() -> int:
@@ -156,4 +206,22 @@ def get_dds_target_stale_timeout_sec() -> float:
         return 3.0
     if value <= 0:
         return 3.0
+    return value
+
+
+def get_patrol_num_passes() -> int:
+    return _get_env_int("PATROL_NUM_PASSES", 4, min_value=2)
+
+
+def get_patrol_scan_radius_m() -> float | None:
+    value = _get_env_optional_float("PATROL_SCAN_RADIUS_M", min_value=0.1)
+    if value is None:
+        return 5000.0
+    return value
+
+
+def get_patrol_boundary_clearance_m() -> float | None:
+    value = _get_env_optional_float("PATROL_BOUNDARY_CLEARANCE_M", min_value=0.0)
+    if value is None:
+        return 500.0
     return value
