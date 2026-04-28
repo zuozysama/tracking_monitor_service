@@ -262,6 +262,48 @@ class ApiContractTestCase(unittest.TestCase):
         self.assertEqual(old_status["task_status"], "terminated")
         self.assertEqual(old_status["finish_reason"], "manual_terminated")
 
+    def test_preplan_then_execute_can_reuse_same_task_id(self):
+        task_id = "task-preplan-then-execute-001"
+
+        preplan_resp = self.client.post(
+            "/api/v1/tasks",
+            json={
+                "task_id": task_id,
+                "task_type": "preplan",
+                "task_area": {
+                    "area_type": "polygon",
+                    "points": [
+                        {"longitude": 121.49, "latitude": 31.21},
+                        {"longitude": 121.52, "latitude": 31.21},
+                        {"longitude": 121.52, "latitude": 31.23},
+                    ],
+                },
+                "end_condition": {"duration_sec": 300},
+            },
+        )
+        self.assertEqual(preplan_resp.status_code, 200)
+        self.assertIn("preplan_result", preplan_resp.json()["data"])
+
+        execute_resp = self.client.post(
+            "/api/v1/tasks",
+            json={
+                "task_id": task_id,
+                "task_type": "escort",
+                "task_area": {
+                    "area_type": "polygon",
+                    "points": [
+                        {"longitude": 121.60, "latitude": 31.30},
+                        {"longitude": 121.63, "latitude": 31.30},
+                        {"longitude": 121.63, "latitude": 31.33},
+                    ],
+                },
+                "end_condition": {"duration_sec": 300},
+            },
+        )
+        self.assertEqual(execute_resp.status_code, 200)
+        self.assertEqual(execute_resp.json()["data"]["task_id"], task_id)
+        self.assertEqual(execute_resp.json()["data"]["task_type"], "escort")
+
     def test_manual_feedback_contract(self):
         task_id = "task-manual-001"
         self.client.post(

@@ -157,6 +157,9 @@ class CollaborationService:
         return None
 
     def _publish_task_update_dds(self, task: TaskContext, update_type_key: str) -> None:
+        if task.task_type == TaskType.PREPLAN:
+            return
+
         result_type = self._resolve_result_type(task)
         payload = {
             "task_id": task.task_id,

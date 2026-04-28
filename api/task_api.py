@@ -1,5 +1,7 @@
-from fastapi import APIRouter, HTTPException
+import logging
 from typing import Optional
+
+from fastapi import APIRouter, HTTPException, Request
 
 from domain.models import (
     CreateTaskRequest,
@@ -13,6 +15,7 @@ from services.task_service import task_service
 from utils.geo_utils import haversine_distance_m
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _build_preplan_result(task: TaskContext) -> Optional[dict]:
@@ -60,9 +63,17 @@ def _build_preplan_result(task: TaskContext) -> Optional[dict]:
 
 
 @router.post("/tasks")
-def create_task(req: CreateTaskRequest):
+def create_task(req: CreateTaskRequest, request: Request):
     try:
         task = task_service.create_task(req)
+        logger.info(
+            "task.create.accepted path=%s client=%s task_id=%s task_type=%s payload=%s",
+            request.url.path,
+            request.client.host if request.client else "-",
+            task.task_id,
+            task.task_type,
+            req.model_dump(mode="json"),
+        )
         payload = {
             "task_id": task.task_id,
             "task_type": task.task_type,
@@ -76,6 +87,13 @@ def create_task(req: CreateTaskRequest):
             payload["preplan_result"] = preplan_result
         return ok(payload)
     except ValueError as e:
+        logger.warning(
+            "task.create.rejected path=%s client=%s status=400 detail=%s payload=%s",
+            request.url.path,
+            request.client.host if request.client else "-",
+            str(e),
+            req.model_dump(mode="json"),
+        )
         raise HTTPException(status_code=400, detail=str(e))
 
 

@@ -84,8 +84,14 @@ class TaskService:
         for old_task in tasks:
             self._terminate_task_for_replacement(old_task, new_task_id)
 
+    @staticmethod
+    def _can_reuse_task_id(existing_task: TaskContext, req: CreateTaskRequest) -> bool:
+        # Accept the command workflow: preplan(task_id=X) -> execute(task_id=X).
+        return existing_task.task_type == TaskType.PREPLAN and req.task_type != TaskType.PREPLAN
+
     def create_task(self, req: CreateTaskRequest) -> TaskContext:
-        if task_store.exists(req.task_id):
+        existing_task = task_store.get_task(req.task_id)
+        if existing_task is not None and not self._can_reuse_task_id(existing_task, req):
             raise ValueError("task already exists")
 
         self._terminate_active_tasks_before_create(req.task_id)

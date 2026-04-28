@@ -1,10 +1,13 @@
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.docs import get_swagger_ui_html
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from adapters.dds import get_dds_adapter
@@ -16,6 +19,8 @@ from api.task_api import router as task_router
 from domain.response import ok
 from scheduler.decision_loop import decision_loop
 from services.dds_ingress_service import register_default_subscriptions
+
+logger = logging.getLogger(__name__)
 
 
 def _resolve_local_swagger_assets_dir() -> Optional[Path]:
@@ -128,6 +133,26 @@ app.include_router(spec_router, prefix="/api/v1", tags=["spec-apis"])
 app.include_router(mock_dds_router, prefix="/mock/dds", tags=["mock-dds"])
 app.include_router(mock_collaboration_router, prefix="/mock/collaboration", tags=["mock-collaboration"])
 app.include_router(mock_autonomy_router, prefix="/mock/autonomy", tags=["mock-autonomy"])
+
+
+@app.exception_handler(RequestValidationError)
+async def handle_request_validation_error(request: Request, exc: RequestValidationError):
+    serialized_errors = jsonable_encoder(exc.errors())
+    if request.url.path == "/api/v1/tasks" and request.method.upper() == "POST":
+        raw_body = ""
+        try:
+            raw_body = (await request.body()).decode("utf-8", errors="ignore")
+        except Exception:
+            raw_body = "<unavailable>"
+
+        logger.warning(
+            "task.create.validation_failed path=%s client=%s status=422 errors=%s body=%s",
+            request.url.path,
+            request.client.host if request.client else "-",
+            serialized_errors,
+            raw_body,
+        )
+    return JSONResponse(status_code=422, content={"detail": serialized_errors})
 
 
 @app.get("/")
