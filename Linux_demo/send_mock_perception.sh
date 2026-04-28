@@ -11,7 +11,7 @@ curl -sS -X POST "${BASE_URL}/mock/dds/perception" \
   "target_count": 1,
   "targets": [
     {
-      "source_platform_id": 2001,
+      "source_platform_id": 1001,
       "target_id": "target-001",
       "target_batch_no": 1,
       "target_bearing_deg": 35.0,
@@ -21,7 +21,7 @@ curl -sS -X POST "${BASE_URL}/mock/dds/perception" \
       "target_longitude": 121.5030000,
       "target_latitude": 31.2200000,
       "target_type_code": 106,
-      "military_civil_attr": 1,
+      "military_civil_attr": 2,
       "target_name": "target-001",
       "threat_level": 2,
       "timestamp": "${NOW_UTC}",

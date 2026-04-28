@@ -17,3 +17,5 @@ examples/
 !requirements.txt
 *.tar
 *.zip
+.tmp_media_env_test/
+.tmp*/

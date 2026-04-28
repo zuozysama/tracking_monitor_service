@@ -194,7 +194,7 @@ def main() -> int:
         else:
             any_fail = True
             print(f"[error] task={probe['task_id']} failed")
-            print(json.dumps(probe, ensure_ascii=False, indent=2))
+            print(json.dumps(probe, ensure_ascii=False, indent=2, default=str))
             if not args.continue_on_fail:
                 break
         print()
@@ -209,4 +209,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

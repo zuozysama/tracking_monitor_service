@@ -181,6 +181,12 @@ def _apply_tracking_env_overrides(merged: Dict[str, Any]) -> Dict[str, Any]:
     if manual_switch_timeout_sec is not None and manual_switch_timeout_sec > 0:
         tracking["manual_switch_timeout_sec"] = manual_switch_timeout_sec
 
+    arrival_cfg = dict(tracking.get("arrival") or {})
+    arrival_tolerance_m = _get_env_float("TRACKING_ARRIVAL_TOLERANCE_M")
+    if arrival_tolerance_m is not None and arrival_tolerance_m > 0:
+        arrival_cfg["tolerance_m"] = arrival_tolerance_m
+    tracking["arrival"] = arrival_cfg
+
     result["tracking"] = tracking
     return result
 

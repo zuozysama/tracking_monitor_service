@@ -11,6 +11,12 @@ from utils.time_utils import utc_now
 
 
 class MediaClient:
+    @staticmethod
+    def _tail_text(text: str, max_chars: int = 2000) -> str:
+        if len(text) <= max_chars:
+            return text
+        return f"...(truncated, showing last {max_chars} chars)\n{text[-max_chars:]}"
+
     def _mode(self) -> str:
         return settings.external_services.media.mode.strip().lower()
 
@@ -19,13 +25,37 @@ class MediaClient:
 
     @staticmethod
     def _safe_ts() -> str:
-        return re.sub(r"[^0-9]", "", utc_now())[:14]
+        return re.sub(r"[^0-9]", "", utc_now().isoformat())[:14]
 
     @staticmethod
     def _build_scale_filter(target_width: Optional[int], target_height: Optional[int]) -> list[str]:
         if target_width is None or target_height is None:
             return []
         return ["-vf", f"scale={int(target_width)}:{int(target_height)}"]
+
+    @staticmethod
+    def _get_env_positive_int(name: str) -> Optional[int]:
+        raw = (os.getenv(name, "") or "").strip()
+        if not raw:
+            return None
+        try:
+            value = int(raw)
+        except Exception:
+            return None
+        if value <= 0:
+            return None
+        return value
+
+    @staticmethod
+    def _get_env_bool(name: str, default: bool) -> bool:
+        raw = (os.getenv(name, "") or "").strip().lower()
+        if not raw:
+            return default
+        if raw in {"1", "true", "yes", "y", "on"}:
+            return True
+        if raw in {"0", "false", "no", "n", "off"}:
+            return False
+        return default
 
     @staticmethod
     def _looks_like_webrtc_signaling_url(url: str) -> bool:
@@ -64,7 +94,10 @@ class MediaClient:
             )
             if proc.returncode == 0:
                 return True, ""
-            return False, (proc.stderr or proc.stdout or "").strip()[:800]
+            stderr_text = (proc.stderr or "").strip()
+            stdout_text = (proc.stdout or "").strip()
+            detail = stderr_text or stdout_text or "ffmpeg exited with non-zero code and no output"
+            return False, f"ffmpeg exit_code={proc.returncode}; detail={MediaClient._tail_text(detail)}"
         except Exception as exc:
             return False, str(exc)
 
@@ -186,6 +219,15 @@ class MediaClient:
             )
             return {"success": False, "saved_local": False, "reason": "unsupported_webrtc_signaling_url"}
 
+        resolved_target_width = target_width
+        resolved_target_height = target_height
+        if resolved_target_width is None:
+            resolved_target_width = self._get_env_positive_int("MEDIA_VIDEO_TARGET_WIDTH")
+        if resolved_target_height is None:
+            resolved_target_height = self._get_env_positive_int("MEDIA_VIDEO_TARGET_HEIGHT")
+        keep_audio = self._get_env_bool("MEDIA_VIDEO_KEEP_AUDIO", default=True)
+        preset = (os.getenv("MEDIA_VIDEO_PRESET", "ultrafast") or "").strip() or "ultrafast"
+
         out_file = self._task_output_dir(task_id) / f"{task_id}_video_{self._safe_ts()}.mp4"
         ffmpeg_bin = os.getenv("FFMPEG_BIN", "ffmpeg")
         cmd = [
@@ -193,17 +235,19 @@ class MediaClient:
             "-y",
             "-i",
             stream_url,
-            *self._build_scale_filter(target_width, target_height),
+            *self._build_scale_filter(resolved_target_width, resolved_target_height),
             "-t",
             str(int(duration_sec)),
             "-c:v",
             "libx264",
             "-preset",
-            "veryfast",
-            "-c:a",
-            "aac",
-            str(out_file),
+            preset,
         ]
+        if keep_audio:
+            cmd.extend(["-c:a", "aac"])
+        else:
+            cmd.append("-an")
+        cmd.append(str(out_file))
         ok, err = self._run_ffmpeg(cmd, timeout_sec=max(30, int(duration_sec) + 15))
 
         collaboration_store.append_video_log(
@@ -213,8 +257,10 @@ class MediaClient:
                 "action": "video",
                 "duration_sec": duration_sec,
                 "file_path": str(out_file),
-                "target_width": target_width,
-                "target_height": target_height,
+                "target_width": resolved_target_width,
+                "target_height": resolved_target_height,
+                "keep_audio": keep_audio,
+                "video_preset": preset,
                 "stream_url": stream_url,
                 "error": err or None,
                 "time": utc_now(),
