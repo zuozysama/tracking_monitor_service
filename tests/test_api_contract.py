@@ -1194,6 +1194,97 @@ class ApiContractTestCase(unittest.TestCase):
         candidate_ids = [item.get("target_id") for item in candidates[:5]]
         self.assertEqual(candidate_ids, ["target-031", "target-032", "target-033", "target-034", "target-035"])
 
+    def test_patrol_dispatch_to_autonomy_uses_task_status_1(self):
+        self.assertEqual(self._post_ownship().status_code, 200)
+        task_id = "task-autonomy-patrol-status-001"
+
+        create_resp = self.client.post(
+            "/api/v1/tasks",
+            json={
+                "task_id": task_id,
+                "task_type": "patrol",
+                "task_area": {
+                    "area_type": "polygon",
+                    "points": [
+                        {"longitude": 121.48, "latitude": 31.20},
+                        {"longitude": 121.56, "latitude": 31.20},
+                        {"longitude": 121.56, "latitude": 31.26},
+                        {"longitude": 121.48, "latitude": 31.26},
+                    ],
+                },
+                "end_condition": {"duration_sec": 120},
+            },
+        )
+        self.assertEqual(create_resp.status_code, 200)
+
+        def _has_patrol_dispatch() -> bool:
+            logs_resp = self.client.get("/mock/autonomy/patrol/logs")
+            if logs_resp.status_code != 200:
+                return False
+            items = logs_resp.json()["data"]["items"]
+            return any(item.get("task_id") == task_id for item in items)
+
+        self.assertTrue(self._wait_until(_has_patrol_dispatch))
+        patrol_logs = self.client.get("/mock/autonomy/patrol/logs").json()["data"]["items"]
+        task_logs = [item for item in patrol_logs if str(item.get("task_id")) == task_id]
+        self.assertTrue(task_logs)
+        self.assertEqual(task_logs[-1].get("task_status"), 1)
+
+    def test_patrol_dispatch_to_autonomy_only_once(self):
+        self.assertEqual(self._post_ownship().status_code, 200)
+        task_id = "task-autonomy-patrol-once-001"
+
+        create_resp = self.client.post(
+            "/api/v1/tasks",
+            json={
+                "task_id": task_id,
+                "task_type": "patrol",
+                "task_area": {
+                    "area_type": "polygon",
+                    "points": [
+                        {"longitude": 121.48, "latitude": 31.20},
+                        {"longitude": 121.56, "latitude": 31.20},
+                        {"longitude": 121.56, "latitude": 31.26},
+                        {"longitude": 121.48, "latitude": 31.26},
+                    ],
+                },
+                "end_condition": {"duration_sec": 120},
+            },
+        )
+        self.assertEqual(create_resp.status_code, 200)
+
+        def _has_patrol_dispatch() -> bool:
+            logs_resp = self.client.get("/mock/autonomy/patrol/logs")
+            if logs_resp.status_code != 200:
+                return False
+            items = logs_resp.json()["data"]["items"]
+            return any(item.get("task_id") == task_id for item in items)
+
+        self.assertTrue(self._wait_until(_has_patrol_dispatch))
+        patrol_logs = self.client.get("/mock/autonomy/patrol/logs").json()["data"]["items"]
+        initial_count = len([item for item in patrol_logs if str(item.get("task_id")) == task_id])
+        self.assertEqual(initial_count, 1)
+
+        # Force multiple planning ticks and ownship updates; patrol dispatch should stay one-shot.
+        for idx in range(3):
+            nav_resp = self.client.post(
+                "/mock/dds/navigation",
+                json={
+                    "platform_id": 1001,
+                    "speed_mps": 6.2,
+                    "heading_deg": 90.0 + idx * 5.0,
+                    "longitude": 121.5000000 + idx * 0.001,
+                    "latitude": 31.2200000 + idx * 0.001,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+            self.assertEqual(nav_resp.status_code, 200)
+            task_service.tick_task(task_id)
+
+        patrol_logs_after = self.client.get("/mock/autonomy/patrol/logs").json()["data"]["items"]
+        final_count = len([item for item in patrol_logs_after if str(item.get("task_id")) == task_id])
+        self.assertEqual(final_count, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

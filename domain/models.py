@@ -540,6 +540,10 @@ class TaskContext(CompatModel):
     last_reported_plan_signature: Optional[str] = None
     planning_callback: Optional[FeasibilityCallbackRequest] = None
     last_autonomy_dispatch_signature: Optional[str] = None
+    autonomy_patrol_dispatched_once: bool = False
+    autonomy_retry_signature: Optional[str] = None
+    autonomy_retry_attempts: int = 0
+    autonomy_retry_next_time: Optional[datetime] = None
     last_optical_dispatch_signature: Optional[str] = None
     manual_selection_request_sent: bool = False
     manual_selection_pending: bool = False
@@ -627,7 +631,7 @@ class AutonomyPatrolParams(CompatModel):
 
 class AutonomyPatrolDispatch(CompatModel):
     task_id: Union[int, str]
-    task_status: int = 0
+    task_status: int = 1
     task_mode: int = 1
     params: AutonomyPatrolParams
 

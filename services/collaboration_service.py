@@ -62,6 +62,9 @@ def _heading_diff_deg(a: float, b: float) -> float:
     return abs((a - b + 180.0) % 360.0 - 180.0)
 
 class CollaborationService:
+    _AUTONOMY_RETRY_INTERVAL_SEC = 2
+    _AUTONOMY_RETRY_MAX_ATTEMPTS = 5
+
     @staticmethod
     def _is_tracking_task_type(task_type: TaskType) -> bool:
         return task_type in {TaskType.ESCORT, TaskType.INTERCEPT, TaskType.EXPEL}
@@ -522,7 +525,13 @@ class CollaborationService:
 
     def _build_autonomy_signature_payload(self, payload_obj) -> Optional[dict]:
         if isinstance(payload_obj, AutonomyPatrolDispatch):
-            return payload_obj.model_dump(mode="json")
+            payload = payload_obj.model_dump(mode="json")
+            # end_time is an execution horizon and may drift across planning ticks.
+            # Do not use it as a dedupe key to avoid redundant redispatch.
+            params = payload.get("params")
+            if isinstance(params, dict):
+                params.pop("end_time", None)
+            return payload
 
         if isinstance(payload_obj, AutonomyTrackingDispatch):
             return payload_obj.model_dump(mode="json")
@@ -542,15 +551,6 @@ class CollaborationService:
         if isinstance(accepted, int):
             return accepted == 1
         return False
-
-    @staticmethod
-    def _coerce_autonomy_task_id(task_id: str) -> Union[int, str]:
-        if task_id.isdigit():
-            try:
-                return int(task_id)
-            except ValueError:
-                return task_id
-        return task_id
 
     @staticmethod
     def _resolve_exp_speed(task: TaskContext, fallback_speed: Optional[float] = None) -> float:
@@ -639,8 +639,8 @@ class CollaborationService:
                 for waypoint in task.patrol_plan_output.waypoints
             ]
             payload_obj = AutonomyPatrolDispatch(
-                task_id=self._coerce_autonomy_task_id(task.task_id),
-                task_status=0,
+                task_id=task.task_id,
+                task_status=1,
                 task_mode=1,
                 params=AutonomyPatrolParams(
                     total_number_of_points=len(waypoints),
@@ -653,7 +653,7 @@ class CollaborationService:
         elif task.tracking_plan_output is not None:
             exp_speed = self._resolve_exp_speed(task, task.tracking_plan_output.expected_speed)
             payload_obj = AutonomyTrackingDispatch(
-                task_id=self._coerce_autonomy_task_id(task.task_id),
+                task_id=task.task_id,
                 task_status=1,
                 task_mode=3,
                 params=AutonomyTrackingParams(
@@ -668,7 +668,7 @@ class CollaborationService:
         elif task.underwater_search_output is not None and task.recommended_point is not None:
             exp_speed = self._resolve_exp_speed(task, task.underwater_search_output.expected_speed)
             payload_obj = AutonomyTrackingDispatch(
-                task_id=self._coerce_autonomy_task_id(task.task_id),
+                task_id=task.task_id,
                 task_status=1,
                 task_mode=3,
                 params=AutonomyTrackingParams(
@@ -683,7 +683,7 @@ class CollaborationService:
         elif task.fixed_tracking_output is not None:
             exp_speed = self._resolve_exp_speed(task, task.fixed_tracking_output.expected_speed)
             payload_obj = AutonomyTrackingDispatch(
-                task_id=self._coerce_autonomy_task_id(task.task_id),
+                task_id=task.task_id,
                 task_status=1,
                 task_mode=3,
                 params=AutonomyTrackingParams(
@@ -696,6 +696,11 @@ class CollaborationService:
             )
 
         if payload_obj is None:
+            return
+
+        is_patrol_dispatch = isinstance(payload_obj, AutonomyPatrolDispatch)
+        if is_patrol_dispatch and task.autonomy_patrol_dispatched_once:
+            # Any patrol-mode dispatch (including pre-lock tracking tasks) should be one-shot per task.
             return
 
         signature_payload = self._build_autonomy_signature_payload(payload_obj)
@@ -712,6 +717,19 @@ class CollaborationService:
         if signature == task.last_autonomy_dispatch_signature:
             return
 
+        now = utc_now()
+        if (
+            task.autonomy_retry_signature == signature
+            and task.autonomy_retry_next_time is not None
+            and now < task.autonomy_retry_next_time
+        ):
+            return
+        if (
+            task.autonomy_retry_signature == signature
+            and task.autonomy_retry_attempts >= self._AUTONOMY_RETRY_MAX_ATTEMPTS
+        ):
+            return
+
         dispatch_result = (
             autonomy_client.post_patrol_plan(payload_obj)
             if isinstance(payload_obj, AutonomyPatrolDispatch)
@@ -720,7 +738,22 @@ class CollaborationService:
 
         if self._is_autonomy_dispatch_success(dispatch_result):
             task.last_autonomy_dispatch_signature = signature
+            task.autonomy_retry_signature = None
+            task.autonomy_retry_attempts = 0
+            task.autonomy_retry_next_time = None
+            if is_patrol_dispatch:
+                task.autonomy_patrol_dispatched_once = True
             task_store.update_task(task)
+            return
+
+        if task.autonomy_retry_signature == signature:
+            task.autonomy_retry_attempts += 1
+        else:
+            task.autonomy_retry_signature = signature
+            task.autonomy_retry_attempts = 1
+
+        task.autonomy_retry_next_time = now + timedelta(seconds=self._AUTONOMY_RETRY_INTERVAL_SEC)
+        task_store.update_task(task)
 
     def _dispatch_optical_linkage_if_changed(self, task: TaskContext, task_status: int) -> None:
         target_batch_no = task.current_target_batch_no

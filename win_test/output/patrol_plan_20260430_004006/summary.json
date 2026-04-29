@@ -1,0 +1,170 @@
+{
+  "parameters": {
+    "PATROL_NUM_PASSES": 8,
+    "PATROL_SCAN_RADIUS_M": 5000.0,
+    "PATROL_BOUNDARY_CLEARANCE_M": 500.0,
+    "EXPECTED_SPEED": 12.0,
+    "MAX_STEP_M": null,
+    "START_TURN_PENALTY_M_PER_DEG": 0.5,
+    "USE_SEND_TASK_POINT_ORDER": false
+  },
+  "ownship": {
+    "longitude": 124.05,
+    "latitude": 21.42,
+    "heading_deg": 90.0
+  },
+  "polygon": [
+    {
+      "longitude": 124.2,
+      "latitude": 21.53
+    },
+    {
+      "longitude": 124.79,
+      "latitude": 21.53
+    },
+    {
+      "longitude": 124.79,
+      "latitude": 21.3
+    },
+    {
+      "longitude": 124.2,
+      "latitude": 21.3
+    }
+  ],
+  "waypoint_count": 22,
+  "route_length_m": 179158.106,
+  "waypoints": [
+    {
+      "index": 0,
+      "longitude": 124.2,
+      "latitude": 21.53,
+      "expected_speed": 12.0
+    },
+    {
+      "index": 1,
+      "longitude": 124.2434706764935,
+      "latitude": 21.48953052773366,
+      "expected_speed": 12.0
+    },
+    {
+      "index": 2,
+      "longitude": 124.32731378432901,
+      "latitude": 21.48953052773366,
+      "expected_speed": 12.0
+    },
+    {
+      "index": 3,
+      "longitude": 124.4111568921645,
+      "latitude": 21.48953052773366,
+      "expected_speed": 12.0
+    },
+    {
+      "index": 4,
+      "longitude": 124.495,
+      "latitude": 21.48953052773366,
+      "expected_speed": 12.0
+    },
+    {
+      "index": 5,
+      "longitude": 124.57884310783551,
+      "latitude": 21.48953052773366,
+      "expected_speed": 12.0
+    },
+    {
+      "index": 6,
+      "longitude": 124.662686215671,
+      "latitude": 21.48953052773366,
+      "expected_speed": 12.0
+    },
+    {
+      "index": 7,
+      "longitude": 124.74652932350651,
+      "latitude": 21.48953052773366,
+      "expected_speed": 12.0
+    },
+    {
+      "index": 8,
+      "longitude": 124.74652932350651,
+      "latitude": 21.430401632858217,
+      "expected_speed": 12.0
+    },
+    {
+      "index": 9,
+      "longitude": 124.662686215671,
+      "latitude": 21.430401632858217,
+      "expected_speed": 12.0
+    },
+    {
+      "index": 10,
+      "longitude": 124.57884310783551,
+      "latitude": 21.430401632858217,
+      "expected_speed": 12.0
+    },
+    {
+      "index": 11,
+      "longitude": 124.495,
+      "latitude": 21.430401632858217,
+      "expected_speed": 12.0
+    },
+    {
+      "index": 12,
+      "longitude": 124.4111568921645,
+      "latitude": 21.430401632858217,
+      "expected_speed": 12.0
+    },
+    {
+      "index": 13,
+      "longitude": 124.32731378432901,
+      "latitude": 21.430401632858217,
+      "expected_speed": 12.0
+    },
+    {
+      "index": 14,
+      "longitude": 124.2434706764935,
+      "latitude": 21.430401632858217,
+      "expected_speed": 12.0
+    },
+    {
+      "index": 15,
+      "longitude": 124.2434706764935,
+      "latitude": 21.340469472266342,
+      "expected_speed": 12.0
+    },
+    {
+      "index": 16,
+      "longitude": 124.32731378432901,
+      "latitude": 21.340469472266342,
+      "expected_speed": 12.0
+    },
+    {
+      "index": 17,
+      "longitude": 124.4111568921645,
+      "latitude": 21.340469472266342,
+      "expected_speed": 12.0
+    },
+    {
+      "index": 18,
+      "longitude": 124.495,
+      "latitude": 21.340469472266342,
+      "expected_speed": 12.0
+    },
+    {
+      "index": 19,
+      "longitude": 124.57884310783551,
+      "latitude": 21.340469472266342,
+      "expected_speed": 12.0
+    },
+    {
+      "index": 20,
+      "longitude": 124.662686215671,
+      "latitude": 21.340469472266342,
+      "expected_speed": 12.0
+    },
+    {
+      "index": 21,
+      "longitude": 124.74652932350651,
+      "latitude": 21.340469472266342,
+      "expected_speed": 12.0
+    }
+  ]
+}
