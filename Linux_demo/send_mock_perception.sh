@@ -15,6 +15,7 @@ curl -sS -X POST "${BASE_URL}/mock/dds/perception" \
       "target_id": "target-001",
       "target_batch_no": 1,
       "target_bearing_deg": 35.0,
+      "target_position_attr": "3",
       "target_distance_m": 3000,
       "target_absolute_speed_mps": 6.2,
       "target_absolute_heading_deg": 90.0,

@@ -166,6 +166,75 @@ class ApiContractTestCase(unittest.TestCase):
         self.assertEqual(first["point_type"], "start")
         self.assertEqual(first["eta_sec"], 0)
 
+    def test_preplan_task_is_one_shot_and_completed(self):
+        task_id = "task-preplan-one-shot-001"
+        self._post_ownship()
+        resp = self.client.post(
+            "/api/v1/tasks",
+            json={
+                "task_id": task_id,
+                "task_type": "preplan",
+                "task_name": "preplan-one-shot-test",
+                "task_area": {
+                    "area_type": "polygon",
+                    "points": [
+                        {"longitude": 121.49, "latitude": 31.21},
+                        {"longitude": 121.52, "latitude": 31.21},
+                        {"longitude": 121.52, "latitude": 31.23},
+                    ],
+                },
+                "expected_speed": 8.0,
+                "end_condition": {"duration_sec": 300},
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        first_route_full = resp.json()["data"]["preplan_result"]["planned_route"]
+        self.assertGreater(len(first_route_full), 0)
+        first_route = [
+            {
+                "longitude": point["longitude"],
+                "latitude": point["latitude"],
+                "expected_speed": point["expected_speed"],
+            }
+            for point in first_route_full
+        ]
+
+        status_resp = self.client.get(f"/api/v1/{task_id}/status")
+        self.assertEqual(status_resp.status_code, 200)
+        status_data = status_resp.json()["data"]
+        self.assertEqual(status_data["task_status"], "completed")
+        self.assertEqual(status_data["execution_phase"], "completed")
+
+        self.client.post(
+            "/mock/dds/navigation",
+            json={
+                "platform_id": 1001,
+                "speed_mps": 4.0,
+                "heading_deg": 240.0,
+                "longitude": 121.7000000,
+                "latitude": 31.4000000,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        for _ in range(3):
+            task_service.tick_task(task_id)
+
+        output_resp = self.client.get(f"/api/v1/{task_id}/output")
+        self.assertEqual(output_resp.status_code, 200)
+        output_data = output_resp.json()["data"]
+        preplan_output = output_data["preplan_output"]
+        self.assertIsNotNone(preplan_output)
+
+        later_route = [
+            {
+                "longitude": point["longitude"],
+                "latitude": point["latitude"],
+                "expected_speed": point["expected_speed"],
+            }
+            for point in preplan_output["planned_route"]
+        ]
+        self.assertEqual(later_route, first_route)
+
     def test_create_new_task_auto_replaces_active_old_task(self):
         old_task_id = "task-replace-old-001"
         new_task_id = "task-replace-new-001"
@@ -303,6 +372,226 @@ class ApiContractTestCase(unittest.TestCase):
         self.assertEqual(execute_resp.status_code, 200)
         self.assertEqual(execute_resp.json()["data"]["task_id"], task_id)
         self.assertEqual(execute_resp.json()["data"]["task_type"], "escort")
+
+    def test_execute_patrol_before_target_reuses_confirmed_preplan_route(self):
+        task_id = "task-preplan-confirmed-route-001"
+        area = {
+            "area_type": "polygon",
+            "points": [
+                {"longitude": 121.49, "latitude": 31.21},
+                {"longitude": 121.52, "latitude": 31.21},
+                {"longitude": 121.52, "latitude": 31.23},
+            ],
+        }
+
+        self.client.post(
+            "/mock/dds/navigation",
+            json={
+                "platform_id": 1001,
+                "speed_mps": 6.2,
+                "heading_deg": 10.0,
+                "longitude": 121.5000000,
+                "latitude": 31.2200000,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+
+        preplan_resp = self.client.post(
+            "/api/v1/tasks",
+            json={
+                "task_id": task_id,
+                "task_type": "preplan",
+                "task_area": area,
+                "expected_speed": 8.5,
+                "end_condition": {"duration_sec": 300},
+            },
+        )
+        self.assertEqual(preplan_resp.status_code, 200)
+        confirmed_route = preplan_resp.json()["data"]["preplan_result"]["planned_route"]
+        self.assertGreater(len(confirmed_route), 0)
+
+        self.client.post(
+            "/mock/dds/navigation",
+            json={
+                "platform_id": 1001,
+                "speed_mps": 5.1,
+                "heading_deg": 210.0,
+                "longitude": 121.6400000,
+                "latitude": 31.3500000,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+
+        execute_resp = self.client.post(
+            "/api/v1/tasks",
+            json={
+                "task_id": task_id,
+                "task_type": "escort",
+                "task_area": area,
+                "expected_speed": 3.0,
+                "end_condition": {"duration_sec": 300},
+            },
+        )
+        self.assertEqual(execute_resp.status_code, 200)
+
+        output_resp = self.client.get(f"/api/v1/{task_id}/output")
+        self.assertEqual(output_resp.status_code, 200)
+        output_data = output_resp.json()["data"]
+        patrol_output = output_data["patrol_plan_output"]
+        self.assertIsNotNone(patrol_output)
+
+        executed_waypoints = patrol_output["waypoints"]
+        self.assertEqual(len(executed_waypoints), len(confirmed_route))
+        for idx, waypoint in enumerate(executed_waypoints):
+            confirmed = confirmed_route[idx]
+            self.assertAlmostEqual(waypoint["longitude"], confirmed["longitude"], places=7)
+            self.assertAlmostEqual(waypoint["latitude"], confirmed["latitude"], places=7)
+            self.assertAlmostEqual(waypoint["expected_speed"], confirmed["expected_speed"], places=7)
+
+    def test_execute_underwater_before_target_reuses_confirmed_preplan_route(self):
+        task_id = "task-preplan-confirmed-underwater-001"
+        area = {
+            "area_type": "polygon",
+            "points": [
+                {"longitude": 121.49, "latitude": 31.21},
+                {"longitude": 121.52, "latitude": 31.21},
+                {"longitude": 121.52, "latitude": 31.23},
+            ],
+        }
+
+        self.client.post(
+            "/mock/dds/navigation",
+            json={
+                "platform_id": 1001,
+                "speed_mps": 6.2,
+                "heading_deg": 15.0,
+                "longitude": 121.5000000,
+                "latitude": 31.2200000,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+
+        preplan_resp = self.client.post(
+            "/api/v1/tasks",
+            json={
+                "task_id": task_id,
+                "task_type": "preplan",
+                "task_area": area,
+                "expected_speed": 8.5,
+                "end_condition": {"duration_sec": 300},
+            },
+        )
+        self.assertEqual(preplan_resp.status_code, 200)
+        confirmed_route = preplan_resp.json()["data"]["preplan_result"]["planned_route"]
+        self.assertGreater(len(confirmed_route), 0)
+
+        self.client.post(
+            "/mock/dds/navigation",
+            json={
+                "platform_id": 1001,
+                "speed_mps": 5.3,
+                "heading_deg": 230.0,
+                "longitude": 121.6500000,
+                "latitude": 31.3600000,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+
+        execute_resp = self.client.post(
+            "/api/v1/tasks",
+            json={
+                "task_id": task_id,
+                "task_type": "underwater_search",
+                "task_area": area,
+                "expected_speed": 3.0,
+                "end_condition": {"duration_sec": 300},
+            },
+        )
+        self.assertEqual(execute_resp.status_code, 200)
+
+        output_resp = self.client.get(f"/api/v1/{task_id}/output")
+        self.assertEqual(output_resp.status_code, 200)
+        output_data = output_resp.json()["data"]
+        patrol_output = output_data["patrol_plan_output"]
+        self.assertIsNotNone(patrol_output)
+
+        executed_waypoints = patrol_output["waypoints"]
+        self.assertEqual(len(executed_waypoints), len(confirmed_route))
+        for idx, waypoint in enumerate(executed_waypoints):
+            confirmed = confirmed_route[idx]
+            self.assertAlmostEqual(waypoint["longitude"], confirmed["longitude"], places=7)
+            self.assertAlmostEqual(waypoint["latitude"], confirmed["latitude"], places=7)
+            self.assertAlmostEqual(waypoint["expected_speed"], confirmed["expected_speed"], places=7)
+
+    def test_recreate_preplan_same_task_id_returns_conflict_409(self):
+        task_id = "task-preplan-conflict-001"
+        area = {
+            "area_type": "polygon",
+            "points": [
+                {"longitude": 121.49, "latitude": 31.21},
+                {"longitude": 121.52, "latitude": 31.21},
+                {"longitude": 121.52, "latitude": 31.23},
+            ],
+        }
+
+        first_resp = self.client.post(
+            "/api/v1/tasks",
+            json={
+                "task_id": task_id,
+                "task_type": "preplan",
+                "task_area": area,
+                "end_condition": {"duration_sec": 300},
+            },
+        )
+        self.assertEqual(first_resp.status_code, 200)
+
+        second_resp = self.client.post(
+            "/api/v1/tasks",
+            json={
+                "task_id": task_id,
+                "task_type": "preplan",
+                "task_area": area,
+                "end_condition": {"duration_sec": 300},
+            },
+        )
+        self.assertEqual(second_resp.status_code, 409)
+
+    def test_preplan_then_fixed_tracking_same_task_id_is_not_allowed(self):
+        task_id = "task-preplan-fixed-deny-001"
+
+        preplan_resp = self.client.post(
+            "/api/v1/tasks",
+            json={
+                "task_id": task_id,
+                "task_type": "preplan",
+                "task_area": {
+                    "area_type": "polygon",
+                    "points": [
+                        {"longitude": 121.49, "latitude": 31.21},
+                        {"longitude": 121.52, "latitude": 31.21},
+                        {"longitude": 121.52, "latitude": 31.23},
+                    ],
+                },
+                "end_condition": {"duration_sec": 300},
+            },
+        )
+        self.assertEqual(preplan_resp.status_code, 200)
+
+        fixed_resp = self.client.post(
+            "/api/v1/tasks",
+            json={
+                "task_id": task_id,
+                "task_type": "fixed_tracking",
+                "task_area": {
+                    "area_type": "point",
+                    "points": [
+                        {"longitude": 121.55, "latitude": 31.25},
+                    ],
+                },
+                "end_condition": {"duration_sec": 300},
+            },
+        )
+        self.assertEqual(fixed_resp.status_code, 400)
 
     def test_manual_feedback_contract(self):
         task_id = "task-manual-001"

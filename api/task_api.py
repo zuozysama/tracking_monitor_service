@@ -11,7 +11,7 @@ from domain.models import (
     TerminateTaskRequest,
 )
 from domain.response import ok
-from services.task_service import task_service
+from services.task_service import TaskConflictError, task_service
 from utils.geo_utils import haversine_distance_m
 
 router = APIRouter()
@@ -95,6 +95,15 @@ def create_task(req: CreateTaskRequest, request: Request):
             req.model_dump(mode="json"),
         )
         raise HTTPException(status_code=400, detail=str(e))
+    except TaskConflictError as e:
+        logger.warning(
+            "task.create.rejected path=%s client=%s status=409 detail=%s payload=%s",
+            request.url.path,
+            request.client.host if request.client else "-",
+            str(e),
+            req.model_dump(mode="json"),
+        )
+        raise HTTPException(status_code=409, detail=str(e))
 
 
 @router.get("/tasks")

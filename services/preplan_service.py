@@ -19,6 +19,16 @@ class PreplanService:
         if task.task_area is None:
             return
 
+        # One-shot preplan: if result already exists, keep it frozen and close task.
+        if task.preplan_output is not None:
+            now = utc_now()
+            task.status = TaskStatus.COMPLETED
+            task.end_time = now
+            task.update_time = now
+            task.execution_phase = "completed"
+            task_store.update_task(task)
+            return
+
         ownship = situation_store.get_ownship()
         ownship_point = None
         ownship_heading_deg = None
@@ -36,14 +46,17 @@ class PreplanService:
             boundary_clearance_m=get_patrol_boundary_clearance_m(),
         )
 
-        task.execution_phase = "planning"
         task.preplan_output = PreplanOutput(
             task_id=task.task_id,
             planned_route=waypoints,
             feasible=True,
             reason="方案可执行",
         )
-        task.update_time = utc_now()
+        now = utc_now()
+        task.status = TaskStatus.COMPLETED
+        task.end_time = now
+        task.update_time = now
+        task.execution_phase = "completed"
         task_store.update_task(task)
 
 

@@ -519,6 +519,7 @@ class TaskContext(CompatModel):
     execution_phase: str = "idle"
     patrol_waypoints: Optional[List[PatrolWaypoint]] = None
     current_waypoint_index: int = 0
+    confirmed_preplan_route: Optional[List[PatrolWaypoint]] = None
 
     patrol_plan_output: Optional[PatrolPlanOutput] = None
     tracking_plan_output: Optional[TrackingPlanOutput] = None

@@ -35,7 +35,19 @@ from utils.region_utils import is_point_in_task_area
 from utils.time_utils import utc_now
 
 
+class TaskConflictError(Exception):
+    pass
+
+
 class TaskService:
+    _PREPLAN_REUSE_EXECUTE_TYPES = {
+        TaskType.PATROL,
+        TaskType.ESCORT,
+        TaskType.INTERCEPT,
+        TaskType.EXPEL,
+        TaskType.UNDERWATER_SEARCH,
+    }
+
     @staticmethod
     def _parse_target_batch_no_from_id(target_id: Optional[str]) -> Optional[int]:
         if target_id is None:
@@ -86,13 +98,34 @@ class TaskService:
 
     @staticmethod
     def _can_reuse_task_id(existing_task: TaskContext, req: CreateTaskRequest) -> bool:
-        # Accept the command workflow: preplan(task_id=X) -> execute(task_id=X).
-        return existing_task.task_type == TaskType.PREPLAN and req.task_type != TaskType.PREPLAN
+        # Accept the command workflow: preplan(task_id=X) -> execute(task_id=X),
+        # with fixed_tracking explicitly excluded.
+        return (
+            existing_task.task_type == TaskType.PREPLAN
+            and req.task_type in TaskService._PREPLAN_REUSE_EXECUTE_TYPES
+        )
+
+    @staticmethod
+    def _extract_confirmed_preplan_route(existing_task: Optional[TaskContext], req: CreateTaskRequest):
+        if existing_task is None:
+            return None
+        if not TaskService._can_reuse_task_id(existing_task, req):
+            return None
+        if existing_task.preplan_output is None:
+            return None
+        route = existing_task.preplan_output.planned_route or []
+        if not route:
+            return None
+        return [waypoint.model_copy(deep=True) for waypoint in route]
 
     def create_task(self, req: CreateTaskRequest) -> TaskContext:
         existing_task = task_store.get_task(req.task_id)
-        if existing_task is not None and not self._can_reuse_task_id(existing_task, req):
-            raise ValueError("task already exists")
+        if existing_task is not None:
+            if req.task_type == TaskType.PREPLAN:
+                raise TaskConflictError("preplan task_id already exists; terminate old task before re-preplan")
+            if not self._can_reuse_task_id(existing_task, req):
+                raise ValueError("task already exists")
+        confirmed_preplan_route = self._extract_confirmed_preplan_route(existing_task, req)
 
         self._terminate_active_tasks_before_create(req.task_id)
 
@@ -131,6 +164,7 @@ class TaskService:
             start_time=now,
             update_time=now,
             execution_phase="planning",
+            confirmed_preplan_route=confirmed_preplan_route,
         )
 
         task.status = TaskStatus.RUNNING

@@ -22,23 +22,26 @@ class PatrolService:
             task_store.update_task(task)
             return
 
-        ownship = situation_store.get_ownship()
-        ownship_point = None
-        ownship_heading_deg = None
-        if ownship is not None:
-            ownship_point = GeoPoint(longitude=ownship.longitude, latitude=ownship.latitude)
-            ownship_heading_deg = ownship.heading
+        if task.confirmed_preplan_route:
+            waypoints = [waypoint.model_copy(deep=True) for waypoint in task.confirmed_preplan_route]
+        else:
+            ownship = situation_store.get_ownship()
+            ownship_point = None
+            ownship_heading_deg = None
+            if ownship is not None:
+                ownship_point = GeoPoint(longitude=ownship.longitude, latitude=ownship.latitude)
+                ownship_heading_deg = ownship.heading
 
-        expected_speed = task.expected_speed or 0.0
-        waypoints = generate_simple_patrol_waypoints(
-            task_area=task.task_area,
-            expected_speed=expected_speed,
-            num_passes=get_patrol_num_passes(),
-            ownship_point=ownship_point,
-            ownship_heading_deg=ownship_heading_deg,
-            scan_radius_m=get_patrol_scan_radius_m(),
-            boundary_clearance_m=get_patrol_boundary_clearance_m(),
-        )
+            expected_speed = task.expected_speed or 0.0
+            waypoints = generate_simple_patrol_waypoints(
+                task_area=task.task_area,
+                expected_speed=expected_speed,
+                num_passes=get_patrol_num_passes(),
+                ownship_point=ownship_point,
+                ownship_heading_deg=ownship_heading_deg,
+                scan_radius_m=get_patrol_scan_radius_m(),
+                boundary_clearance_m=get_patrol_boundary_clearance_m(),
+            )
 
         task.execution_phase = "patrolling"
         task.patrol_waypoints = waypoints
