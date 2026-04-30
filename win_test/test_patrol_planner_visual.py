@@ -13,7 +13,12 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from algorithms.patrol_planner import generate_simple_patrol_waypoints
+from algorithms.patrol_planner import (
+    _normalize_polygon_boundary,
+    _project_from_local,
+    _project_to_local,
+    generate_simple_patrol_waypoints,
+)
 from domain.models import GeoPoint, TaskArea
 
 
@@ -22,10 +27,10 @@ PATROL_NUM_PASSES = 8
 
 # Use None to simulate an empty PATROL_SCAN_RADIUS_M value. When set, polygon
 # lane spacing is forced to 2 * PATROL_SCAN_RADIUS_M.
-PATROL_SCAN_RADIUS_M: float | None = 5000.0
+PATROL_SCAN_RADIUS_M: float | None = 2500.0
 
 # Use None to simulate an empty PATROL_BOUNDARY_CLEARANCE_M value.
-PATROL_BOUNDARY_CLEARANCE_M: float | None = 500.0
+PATROL_BOUNDARY_CLEARANCE_M: float | None = 200.0
 
 EXPECTED_SPEED = 12.0
 MAX_STEP_M: float | None = None
@@ -33,25 +38,21 @@ START_TURN_PENALTY_M_PER_DEG = 0.5
 
 # Ownship settings shown on the figure and used by the planner to choose the
 # route start. Heading uses navigation convention: 0 north, 90 east.
-OWNSHIP_LONGITUDE = 124.05
-OWNSHIP_LATITUDE = 21.42
+# OWNSHIP_LONGITUDE = 124.99
+# OWNSHIP_LATITUDE = 21.30
+OWNSHIP_LONGITUDE = 124.55
+OWNSHIP_LATITUDE = 21.40
 OWNSHIP_HEADING_DEG: float | None = 90.0
 
-# Coordinates from Linux_demo/send_task_tracking.sh. That shell sample lists
-# the two northern points first and the two southern points second; the default
-# below reorders them around the rectangle boundary for polygon planning.
-USE_SEND_TASK_POINT_ORDER = False
+# Coordinates from Linux_demo/send_task_tracking.sh. The patrol planner
+# normalizes polygon winding internally.
 SEND_TASK_POLYGON_POINTS = [
     (124.20, 21.53),
     (124.79, 21.53),
+    (124.50, 21.60),
     (124.20, 21.30),
+    (124.90, 21.40),
     (124.79, 21.30),
-]
-BOUNDARY_ORDER_POLYGON_POINTS = [
-    (124.20, 21.53),
-    (124.79, 21.53),
-    (124.79, 21.30),
-    (124.20, 21.30),
 ]
 
 DRAW_SCAN_RADIUS_CIRCLES = True
@@ -63,11 +64,11 @@ EARTH_RADIUS_M = 6371000.0
 
 
 def main() -> None:
-    polygon_lon_lat = SEND_TASK_POLYGON_POINTS if USE_SEND_TASK_POINT_ORDER else BOUNDARY_ORDER_POLYGON_POINTS
-    polygon_points = [GeoPoint(longitude=lon, latitude=lat) for lon, lat in polygon_lon_lat]
+    polygon_points = [GeoPoint(longitude=lon, latitude=lat) for lon, lat in SEND_TASK_POLYGON_POINTS]
     ownship_point = GeoPoint(longitude=OWNSHIP_LONGITUDE, latitude=OWNSHIP_LATITUDE)
 
     task_area = TaskArea(area_type="polygon", points=polygon_points)
+    display_polygon_points = normalized_polygon_points(polygon_points)
     waypoints = generate_simple_patrol_waypoints(
         task_area=task_area,
         expected_speed=EXPECTED_SPEED,
@@ -85,16 +86,16 @@ def main() -> None:
     run_output_dir = OUTPUT_DIR / stem
     run_output_dir.mkdir(parents=True, exist_ok=True)
 
-    all_geo_points = polygon_points + [ownship_point] + [
+    all_geo_points = display_polygon_points + [ownship_point] + [
         GeoPoint(longitude=point.longitude, latitude=point.latitude) for point in waypoints
     ]
     projector = LocalProjector(all_geo_points)
-    polygon_xy = [projector.to_xy(point) for point in polygon_points]
+    polygon_xy = [projector.to_xy(point) for point in display_polygon_points]
     ownship_xy = projector.to_xy(ownship_point)
     waypoint_xy = [projector.to_xy(GeoPoint(longitude=point.longitude, latitude=point.latitude)) for point in waypoints]
 
     write_waypoints_csv(run_output_dir / "waypoints.csv", waypoints, projector)
-    write_summary_json(run_output_dir / "summary.json", polygon_points, ownship_point, waypoints)
+    write_summary_json(run_output_dir / "summary.json", polygon_points, display_polygon_points, ownship_point, waypoints)
     write_svg(run_output_dir / "plan.svg", polygon_xy, ownship_xy, waypoint_xy, waypoints)
     png_path = try_write_png(run_output_dir / "plan.png", polygon_xy, ownship_xy, waypoint_xy, waypoints)
 
@@ -120,6 +121,12 @@ class LocalProjector:
         return x, y
 
 
+def normalized_polygon_points(points: Sequence[GeoPoint]) -> list[GeoPoint]:
+    local_polygon, ref_lon, ref_lat = _project_to_local(list(points))
+    normalized = _normalize_polygon_boundary(local_polygon)
+    return [_project_from_local(point, ref_lon=ref_lon, ref_lat=ref_lat) for point in normalized]
+
+
 def write_waypoints_csv(path: Path, waypoints: Sequence[object], projector: LocalProjector) -> None:
     with path.open("w", newline="", encoding="utf-8") as file:
         writer = csv.writer(file)
@@ -132,7 +139,8 @@ def write_waypoints_csv(path: Path, waypoints: Sequence[object], projector: Loca
 
 def write_summary_json(
     path: Path,
-    polygon_points: Sequence[GeoPoint],
+    input_polygon_points: Sequence[GeoPoint],
+    display_polygon_points: Sequence[GeoPoint],
     ownship_point: GeoPoint,
     waypoints: Sequence[object],
 ) -> None:
@@ -144,14 +152,14 @@ def write_summary_json(
             "EXPECTED_SPEED": EXPECTED_SPEED,
             "MAX_STEP_M": MAX_STEP_M,
             "START_TURN_PENALTY_M_PER_DEG": START_TURN_PENALTY_M_PER_DEG,
-            "USE_SEND_TASK_POINT_ORDER": USE_SEND_TASK_POINT_ORDER,
         },
         "ownship": {
             "longitude": ownship_point.longitude,
             "latitude": ownship_point.latitude,
             "heading_deg": OWNSHIP_HEADING_DEG,
         },
-        "polygon": [{"longitude": point.longitude, "latitude": point.latitude} for point in polygon_points],
+        "input_polygon": [{"longitude": point.longitude, "latitude": point.latitude} for point in input_polygon_points],
+        "normalized_polygon": [{"longitude": point.longitude, "latitude": point.latitude} for point in display_polygon_points],
         "waypoint_count": len(waypoints),
         "route_length_m": round(route_length_m(waypoints), 3),
         "waypoints": [

@@ -5,3 +5,4 @@ __pycache__/
 *.tar
 *.pdf
 *.png
+win_test/output/

@@ -19,3 +19,4 @@ examples/
 *.zip
 .tmp_media_env_test/
 .tmp*/
+win_test/

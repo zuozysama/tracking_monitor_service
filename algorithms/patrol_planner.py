@@ -195,6 +195,89 @@ def _dedupe_path_points(points: List[Tuple[float, float]], eps: float = 1e-6) ->
     return cleaned
 
 
+def _polygon_signed_area(polygon: List[_LocalPoint]) -> float:
+    area = 0.0
+    for idx, point in enumerate(polygon):
+        nxt = polygon[(idx + 1) % len(polygon)]
+        area += point.x * nxt.y - nxt.x * point.y
+    return area / 2.0
+
+
+def _orientation(ax: float, ay: float, bx: float, by: float, cx: float, cy: float) -> float:
+    return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
+
+
+def _segments_intersect(
+    a: _LocalPoint,
+    b: _LocalPoint,
+    c: _LocalPoint,
+    d: _LocalPoint,
+    eps: float = 1e-6,
+) -> bool:
+    o1 = _orientation(a.x, a.y, b.x, b.y, c.x, c.y)
+    o2 = _orientation(a.x, a.y, b.x, b.y, d.x, d.y)
+    o3 = _orientation(c.x, c.y, d.x, d.y, a.x, a.y)
+    o4 = _orientation(c.x, c.y, d.x, d.y, b.x, b.y)
+
+    if o1 * o2 < -eps and o3 * o4 < -eps:
+        return True
+    if abs(o1) <= eps and _point_on_segment(c.x, c.y, a.x, a.y, b.x, b.y, eps=eps):
+        return True
+    if abs(o2) <= eps and _point_on_segment(d.x, d.y, a.x, a.y, b.x, b.y, eps=eps):
+        return True
+    if abs(o3) <= eps and _point_on_segment(a.x, a.y, c.x, c.y, d.x, d.y, eps=eps):
+        return True
+    if abs(o4) <= eps and _point_on_segment(b.x, b.y, c.x, c.y, d.x, d.y, eps=eps):
+        return True
+    return False
+
+
+def _intersecting_edge_pair(polygon: List[_LocalPoint]) -> Optional[Tuple[int, int]]:
+    n = len(polygon)
+    for i in range(n):
+        a1 = polygon[i]
+        a2 = polygon[(i + 1) % n]
+        for j in range(i + 1, n):
+            if j == i or j == (i + 1) % n or i == (j + 1) % n:
+                continue
+            b1 = polygon[j]
+            b2 = polygon[(j + 1) % n]
+            if _segments_intersect(a1, a2, b1, b2):
+                return i, j
+    return None
+
+
+def _polygon_has_self_intersection(polygon: List[_LocalPoint]) -> bool:
+    return _intersecting_edge_pair(polygon) is not None
+
+
+def _normalize_polygon_boundary(polygon: List[_LocalPoint]) -> List[_LocalPoint]:
+    if len(polygon) < 3:
+        return polygon
+
+    normalized = list(polygon)
+    if _distance_m(normalized[0].x - normalized[-1].x, normalized[0].y - normalized[-1].y) <= 1e-6:
+        normalized = normalized[:-1]
+
+    # If downlink points form a bow-tie shape, untangle crossings by reversing
+    # the vertex chain between the two crossing edges. This preserves boundary
+    # adjacency for already valid concave polygons instead of sorting by angle.
+    for _ in range(len(normalized) * len(normalized)):
+        pair = _intersecting_edge_pair(normalized)
+        if pair is None:
+            break
+        i, j = pair
+        if i > j:
+            i, j = j, i
+        normalized[i + 1 : j + 1] = reversed(normalized[i + 1 : j + 1])
+
+    # Use a consistent clockwise winding for scanline operations and downstream
+    # geometry. In local coordinates positive signed area means counterclockwise.
+    if _polygon_signed_area(normalized) > 0:
+        normalized = list(reversed(normalized))
+    return normalized
+
+
 def _point_on_segment(
     px: float,
     py: float,
@@ -452,6 +535,38 @@ def _compute_start_cost(
     return distance_cost + turn_penalty_m_per_deg * turn_cost
 
 
+def _compute_entry_start_cost(
+    points: List[_LocalPoint],
+    entry_point: _LocalPoint,
+    approach_heading_deg: Optional[float],
+    turn_penalty_m_per_deg: float,
+) -> float:
+    if not points:
+        return float("inf")
+
+    first = points[0]
+    distance_cost = _distance_m(first.x - entry_point.x, first.y - entry_point.y)
+    if approach_heading_deg is None or turn_penalty_m_per_deg <= 0:
+        return distance_cost
+
+    desired_heading = _bearing_from_vector(first.x - entry_point.x, first.y - entry_point.y)
+    turn_cost = _min_turn_deg(approach_heading_deg, desired_heading)
+    return distance_cost + turn_penalty_m_per_deg * turn_cost
+
+
+def _compute_entry_scan_offset(
+    points: List[_LocalPoint],
+    entry_point: _LocalPoint,
+    sweep_angle_deg: float,
+) -> float:
+    if not points:
+        return float("inf")
+
+    _, entry_scan_y = _rotate_xy(entry_point.x, entry_point.y, -sweep_angle_deg)
+    _, first_scan_y = _rotate_xy(points[0].x, points[0].y, -sweep_angle_deg)
+    return abs(first_scan_y - entry_scan_y)
+
+
 def _generate_candidate_paths(
     polygon_xy: List[Tuple[float, float]],
     sweep_angle_deg: float,
@@ -514,6 +629,7 @@ def generate_simple_patrol_waypoints(
 
     pass_count = _normalize_pass_count(num_passes)
     local_polygon, ref_lon, ref_lat = _project_to_local(task_area.points)
+    local_polygon = _normalize_polygon_boundary(local_polygon)
     polygon_xy = [(point.x, point.y) for point in local_polygon]
 
     ys = [point.y for point in local_polygon]
@@ -563,28 +679,52 @@ def generate_simple_patrol_waypoints(
             )
         ]
 
-    selected_path = candidate_paths[0]
+    dense_step = max_step_m if max_step_m is not None and max_step_m > 0 else max(spacing, 1.0)
+    prepared_candidate_paths: List[List[_LocalPoint]] = []
+    for path in candidate_paths:
+        dense_path = _densify_path(path, max_step_m=dense_step)
+        safe_path = _filter_points_in_safe_zone(
+            points=dense_path,
+            polygon_xy=polygon_xy,
+            required_margin_m=required_safe_margin,
+        )
+        prepared_candidate_paths.append(safe_path if safe_path else dense_path)
+
+    entry_point = None
+    entry_local = None
+    approach_heading_deg = None
+    selected_path = prepared_candidate_paths[0]
     if ownship_point is not None:
         ownship_local = _project_point_to_local(ownship_point, ref_lon=ref_lon, ref_lat=ref_lat)
+        entry_point = _build_polygon_entry_point(local_polygon, ref_lon, ref_lat, ownship_point)
+        entry_local = _project_point_to_local(entry_point, ref_lon=ref_lon, ref_lat=ref_lat)
+        if _distance_m(entry_local.x - ownship_local.x, entry_local.y - ownship_local.y) > 1e-6:
+            approach_heading_deg = _bearing_from_vector(entry_local.x - ownship_local.x, entry_local.y - ownship_local.y)
+        else:
+            approach_heading_deg = ownship_heading_deg
         selected_path = min(
-            candidate_paths,
-            key=lambda points: _compute_start_cost(
-                points=points,
-                ownship_point=ownship_local,
-                ownship_heading_deg=ownship_heading_deg,
-                turn_penalty_m_per_deg=turn_penalty,
+            prepared_candidate_paths,
+            key=lambda points: (
+                _compute_entry_scan_offset(
+                    points=points,
+                    entry_point=entry_local,
+                    sweep_angle_deg=sweep_angle_deg,
+                ),
+                _compute_entry_start_cost(
+                    points=points,
+                    entry_point=entry_local,
+                    approach_heading_deg=approach_heading_deg,
+                    turn_penalty_m_per_deg=turn_penalty,
+                ),
+                _compute_start_cost(
+                    points=points,
+                    ownship_point=ownship_local,
+                    ownship_heading_deg=ownship_heading_deg,
+                    turn_penalty_m_per_deg=turn_penalty,
+                ),
             ),
         )
 
-    dense_step = max_step_m if max_step_m is not None and max_step_m > 0 else max(spacing, 1.0)
-    dense_waypoints = _densify_path(selected_path, max_step_m=dense_step)
-    safe_waypoints = _filter_points_in_safe_zone(
-        points=dense_waypoints,
-        polygon_xy=polygon_xy,
-        required_margin_m=required_safe_margin,
-    )
-    if safe_waypoints:
-        dense_waypoints = safe_waypoints
     geo_waypoints = [
         PatrolWaypoint(
             longitude=geo_point.longitude,
@@ -593,10 +733,11 @@ def generate_simple_patrol_waypoints(
         )
         for geo_point in (
             _project_from_local(point, ref_lon=ref_lon, ref_lat=ref_lat)
-            for point in dense_waypoints
+            for point in selected_path
         )
     ]
     if ownship_point is None:
         return geo_waypoints
-    entry_point = _build_polygon_entry_point(local_polygon, ref_lon, ref_lat, ownship_point)
+    if entry_point is None:
+        entry_point = _build_polygon_entry_point(local_polygon, ref_lon, ref_lat, ownship_point)
     return _prepend_start_waypoint(geo_waypoints, entry_point, expected_speed)
