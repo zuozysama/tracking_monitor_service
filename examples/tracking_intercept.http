@@ -153,8 +153,8 @@ Content-Type: {{json}}
 }
 
 ### 11. Inspect Stage-3 dispatch candidate
-### if Stage-2 is right -> Stage-3 should be right_front (about 45 deg)
-### if Stage-2 is left -> Stage-3 should be left_front (about 315 deg)
+### if Stage-2 is right -> Stage-3 should be right_front (about 0 deg)
+### if Stage-2 is left -> Stage-3 should be left_front (about 0 deg)
 GET {{baseUrl}}/mock/autonomy/tracking/logs
 
 ### 12. Read Stage-3 absolute recommended point
