@@ -17,13 +17,20 @@ from utils.config_utils import (
 )
 from utils.geo_utils import haversine_distance_m
 from utils.time_utils import utc_now
+from algorithms.patrol_planner import _LocalPoint, _project_from_local, _project_to_local
 from algorithms.target_filter import filter_and_select_target
 from algorithms.track_point_generator import (
+    bearing_between_points_deg,
     generate_simple_tracking_point,
+    move_point_by_bearing_and_distance,
+    relative_signed_angle_deg,
 )
 
 
 class TrackingService:
+    EXPEL_SIDE_AMBIGUOUS_DEG = 5.0
+    INTERCEPT_SIDE_AMBIGUOUS_DEG = 5.0
+
     def _resolve_tracking_mode(self, task: TaskContext) -> Optional[TrackingMode]:
         if task.task_type == TaskType.ESCORT:
             return TrackingMode.ESCORT
@@ -43,14 +50,150 @@ class TrackingService:
         task.expel_side = None
         task.expel_arrival_stable_cycles = 0
 
-    def _infer_side_from_bearing(self, target_heading_deg: float, rel_bearing_deg: float) -> str:
-        del target_heading_deg
-        bearing = rel_bearing_deg % 360.0
-        if 0.0 < bearing < 180.0:
-            return "right"
-        if bearing >= 180.0:
+    def _task_area_center(self, task: TaskContext) -> Optional[GeoPoint]:
+        task_area = task.task_area
+        if task_area is None:
+            return None
+
+        if task_area.area_type == "circle":
+            return task_area.center
+
+        points = task_area.points or []
+        if not points:
+            return None
+
+        local_points, ref_lon, ref_lat = _project_to_local(points)
+
+        if len(local_points) < 3:
+            center = _LocalPoint(
+                x=sum(point.x for point in local_points) / len(local_points),
+                y=sum(point.y for point in local_points) / len(local_points),
+            )
+            return _project_from_local(center, ref_lon=ref_lon, ref_lat=ref_lat)
+
+        area2 = 0.0
+        centroid_x = 0.0
+        centroid_y = 0.0
+        for index, point in enumerate(local_points):
+            next_point = local_points[(index + 1) % len(local_points)]
+            cross = point.x * next_point.y - next_point.x * point.y
+            area2 += cross
+            centroid_x += (point.x + next_point.x) * cross
+            centroid_y += (point.y + next_point.y) * cross
+
+        if abs(area2) < 1e-12:
+            center = _LocalPoint(
+                x=sum(point.x for point in local_points) / len(local_points),
+                y=sum(point.y for point in local_points) / len(local_points),
+            )
+            return _project_from_local(center, ref_lon=ref_lon, ref_lat=ref_lat)
+
+        center = _LocalPoint(
+            x=centroid_x / (3.0 * area2),
+            y=centroid_y / (3.0 * area2),
+        )
+        return _project_from_local(center, ref_lon=ref_lon, ref_lat=ref_lat)
+
+    def _nearest_side_by_offsets(
+        self,
+        ownship,
+        target,
+        distance_m: float,
+        side_offsets: dict[str, float],
+        previous_side: Optional[str] = None,
+    ) -> str:
+        if (
+            ownship is None
+            or target.longitude is None
+            or target.latitude is None
+        ):
+            return previous_side if previous_side in {"left", "right"} else "right"
+
+        target_point = GeoPoint(longitude=target.longitude, latitude=target.latitude)
+        ownship_point = GeoPoint(longitude=ownship.longitude, latitude=ownship.latitude)
+
+        side_distances = {}
+        for side, bearing_offset_deg in side_offsets.items():
+            point = move_point_by_bearing_and_distance(
+                start=target_point,
+                bearing_deg=target.heading + bearing_offset_deg,
+                distance_m=distance_m,
+            )
+            side_distances[side] = haversine_distance_m(ownship_point, point)
+
+        if side_distances["left"] < side_distances["right"]:
             return "left"
         return "right"
+
+    def _nearest_intercept_side(self, task: TaskContext, ownship, target) -> str:
+        return self._nearest_side_by_offsets(
+            ownship=ownship,
+            target=target,
+            distance_m=get_tracking_intercept_distance_m(),
+            side_offsets={"left": -90.0, "right": 90.0},
+            previous_side=task.intercept_side,
+        )
+
+    def _nearest_expel_side(self, task: TaskContext, ownship, target) -> str:
+        if task.expel_stage <= 0:
+            distance_m = get_tracking_escort_distance_m()
+            side_offsets = {"left": 225.0, "right": 135.0}
+        else:
+            distance_m = get_tracking_expel_distance_m()
+            side_offsets = {"left": -90.0, "right": 90.0}
+
+        return self._nearest_side_by_offsets(
+            ownship=ownship,
+            target=target,
+            distance_m=distance_m,
+            side_offsets=side_offsets,
+            previous_side=task.expel_side,
+        )
+
+    def _refresh_expel_side(self, task: TaskContext, ownship, target, mode: TrackingMode) -> None:
+        if mode != TrackingMode.EXPEL:
+            return
+
+        center = self._task_area_center(task)
+        if center is None or target.longitude is None or target.latitude is None:
+            if task.expel_side not in {"left", "right"}:
+                task.expel_side = self._nearest_expel_side(task, ownship, target)
+            return
+
+        target_point = GeoPoint(longitude=target.longitude, latitude=target.latitude)
+        bearing_target_to_center = bearing_between_points_deg(target_point, center)
+        signed_angle = relative_signed_angle_deg(target.heading, bearing_target_to_center)
+        near_fore_or_aft = (
+            abs(signed_angle) <= self.EXPEL_SIDE_AMBIGUOUS_DEG
+            or abs(abs(signed_angle) - 180.0) <= self.EXPEL_SIDE_AMBIGUOUS_DEG
+        )
+
+        if near_fore_or_aft:
+            if task.expel_side not in {"left", "right"}:
+                task.expel_side = self._nearest_expel_side(task, ownship, target)
+            return
+
+        task.expel_side = "right" if signed_angle > 0.0 else "left"
+
+    def _infer_side_from_bearing(
+        self,
+        target_heading_deg: float,
+        rel_bearing_deg: float,
+        ambiguous_deg: float = 0.0,
+    ) -> Optional[str]:
+        del target_heading_deg
+        bearing = rel_bearing_deg % 360.0
+        if (
+            bearing <= ambiguous_deg
+            or bearing >= 360.0 - ambiguous_deg
+            or abs(bearing - 180.0) <= ambiguous_deg
+        ):
+            return None
+        if 0.0 < bearing < 180.0:
+            return "right"
+        if 180.0 < bearing < 360.0:
+            return "left"
+        return None
 
     def _refresh_intercept_stage(self, task: TaskContext, ownship, target, mode: TrackingMode) -> None:
         if mode != TrackingMode.INTERCEPT:
@@ -77,12 +220,15 @@ class TrackingService:
 
         if task.intercept_stage == 0:
             if task.recommended_point.rel_bearing_deg is not None:
-                task.intercept_side = self._infer_side_from_bearing(
+                inferred_side = self._infer_side_from_bearing(
                     target_heading_deg=target.heading,
                     rel_bearing_deg=task.recommended_point.rel_bearing_deg,
+                    ambiguous_deg=self.INTERCEPT_SIDE_AMBIGUOUS_DEG,
                 )
+                if inferred_side is not None:
+                    task.intercept_side = inferred_side
             if task.intercept_side is None:
-                task.intercept_side = "right"
+                task.intercept_side = self._nearest_intercept_side(task, ownship, target)
             task.intercept_stage = 1
             task.intercept_arrival_stable_cycles = 0
             return
@@ -116,11 +262,6 @@ class TrackingService:
             return
 
         if task.expel_stage == 0:
-            if task.recommended_point.rel_bearing_deg is not None:
-                task.expel_side = self._infer_side_from_bearing(
-                    target_heading_deg=target.heading,
-                    rel_bearing_deg=task.recommended_point.rel_bearing_deg,
-                )
             if task.expel_side is None:
                 task.expel_side = "right"
             task.expel_stage = 1
@@ -211,6 +352,7 @@ class TrackingService:
             self._reset_intercept_state(task)
         if mode == TrackingMode.EXPEL and previous_target_batch_no not in {None, target.target_batch_no}:
             self._reset_expel_state(task)
+        self._refresh_expel_side(task, ownship, target, mode)
         self._refresh_intercept_stage(task, ownship, target, mode)
         self._refresh_expel_stage(task, ownship, target, mode)
 

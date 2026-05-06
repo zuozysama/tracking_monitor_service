@@ -163,8 +163,15 @@ def generate_tracking_candidate_points(
             sector_weights = {"left_front": 1.0, "right_front": 1.0}
         bearing_resolution_deg = 1.0
     elif mode == TrackingMode.EXPEL and expel_stage <= 0:
-        sectors = ["rear", "left_rear", "right_rear"]
-        sector_weights = {"rear": 1.0, "left_rear": 0.75, "right_rear": 0.75}
+        if expel_side == "right":
+            sectors = ["right_rear"]
+            sector_weights = {"right_rear": 1.0}
+        elif expel_side == "left":
+            sectors = ["left_rear"]
+            sector_weights = {"left_rear": 1.0}
+        else:
+            sectors = ["left_rear", "right_rear"]
+            sector_weights = {"left_rear": 1.0, "right_rear": 1.0}
         bearing_resolution_deg = 1.0
     elif mode == TrackingMode.EXPEL:
         if expel_side == "right":
