@@ -20,7 +20,6 @@ from utils.time_utils import utc_now
 from algorithms.target_filter import filter_and_select_target
 from algorithms.track_point_generator import (
     generate_simple_tracking_point,
-    relative_signed_angle_deg,
 )
 
 
@@ -45,10 +44,11 @@ class TrackingService:
         task.expel_arrival_stable_cycles = 0
 
     def _infer_side_from_bearing(self, target_heading_deg: float, rel_bearing_deg: float) -> str:
-        signed = relative_signed_angle_deg(target_heading_deg, rel_bearing_deg)
-        if signed > 0:
+        del target_heading_deg
+        bearing = rel_bearing_deg % 360.0
+        if 0.0 < bearing < 180.0:
             return "right"
-        if signed < 0:
+        if bearing >= 180.0:
             return "left"
         return "right"
 

@@ -80,10 +80,14 @@ def _sector_to_bearing_offset(sector: str) -> float:
         "right": 90.0,
         "left_rear": 225.0,
         "right_rear": 135.0,
-        "left_front": 315.0,
-        "right_front": 45.0,
+        "left_front": 350.0,
+        "right_front": 10.0,
     }
     return mapping.get(sector, 180.0)
+
+
+def _sector_to_relative_bearing_deg(sector: str) -> float:
+    return normalize_bearing_deg(_sector_to_bearing_offset(sector))
 
 
 def _default_mode_sector_weights(
@@ -186,10 +190,12 @@ def generate_tracking_candidate_points(
     candidates: list[dict] = []
 
     for sector in sectors:
-        abs_bearing = normalize_bearing_deg(target_heading + _sector_to_bearing_offset(sector))
+        sector_bearing = _sector_to_relative_bearing_deg(sector)
+        abs_bearing = normalize_bearing_deg(target_heading + sector_bearing)
         if bearing_resolution_deg > 1e-6:
             abs_bearing = round(abs_bearing / bearing_resolution_deg) * bearing_resolution_deg
             abs_bearing = normalize_bearing_deg(abs_bearing)
+        rel_bearing = normalize_bearing_deg(abs_bearing - target_heading)
 
         point = move_point_by_bearing_and_distance(
             start=target_point,
@@ -210,7 +216,8 @@ def generate_tracking_candidate_points(
                 "sector": sector,
                 "point": point,
                 "rel_range_m": follow_distance_m,
-                "rel_bearing_deg": abs_bearing,
+                "rel_bearing_deg": rel_bearing,
+                "abs_bearing_deg": abs_bearing,
                 "sector_weight": norm_weights.get(sector, 0.0),
                 "dist_from_own_m": dist_from_own_m,
                 "turn_cost_deg": turn_cost_deg,
@@ -283,4 +290,4 @@ def generate_simple_tracking_point(
         bearing_deg=fallback_bearing,
         distance_m=escort_distance_m,
     )
-    return fallback_point, fallback_bearing
+    return fallback_point, 180.0
