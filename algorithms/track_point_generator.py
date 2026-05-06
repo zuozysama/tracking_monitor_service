@@ -80,8 +80,8 @@ def _sector_to_bearing_offset(sector: str) -> float:
         "right": 90.0,
         "left_rear": 225.0,
         "right_rear": 135.0,
-        "left_front": 350.0,
-        "right_front": 10.0,
+        "left_front": 0.0,
+        "right_front": 0.0,
     }
     return mapping.get(sector, 180.0)
 
@@ -196,7 +196,6 @@ def generate_tracking_candidate_points(
             abs_bearing = round(abs_bearing / bearing_resolution_deg) * bearing_resolution_deg
             abs_bearing = normalize_bearing_deg(abs_bearing)
         rel_bearing = normalize_bearing_deg(abs_bearing - target_heading)
-
         point = move_point_by_bearing_and_distance(
             start=target_point,
             bearing_deg=abs_bearing,

@@ -38,7 +38,7 @@ class TrackPointGeneratorTestCase(unittest.TestCase):
         self.assertAlmostEqual(rel_bearing_deg, 90.0, places=6)
         self.assertAlmostEqual(abs_bearing_deg, 180.0, places=1)
 
-    def test_left_front_relative_bearing_wraps_to_350(self):
+    def test_front_intercept_normalizes_left_front_to_0(self):
         target = _target(heading_deg=90.0)
 
         point, rel_bearing_deg = generate_simple_tracking_point(
@@ -56,8 +56,29 @@ class TrackPointGeneratorTestCase(unittest.TestCase):
             GeoPoint(longitude=target.longitude, latitude=target.latitude),
             point,
         )
-        self.assertAlmostEqual(rel_bearing_deg, 350.0, places=6)
-        self.assertAlmostEqual(abs_bearing_deg, 80.0, places=1)
+        self.assertAlmostEqual(rel_bearing_deg, 0.0, places=6)
+        self.assertAlmostEqual(abs_bearing_deg, 90.0, places=1)
+
+    def test_front_intercept_keeps_right_front_as_0(self):
+        target = _target(heading_deg=90.0)
+
+        point, rel_bearing_deg = generate_simple_tracking_point(
+            mode=TrackingMode.INTERCEPT,
+            target=target,
+            ownship=None,
+            escort_distance_m=800.0,
+            intercept_distance_m=500.0,
+            expel_distance_m=200.0,
+            intercept_stage=2,
+            intercept_side="right",
+        )
+
+        abs_bearing_deg = bearing_between_points_deg(
+            GeoPoint(longitude=target.longitude, latitude=target.latitude),
+            point,
+        )
+        self.assertAlmostEqual(rel_bearing_deg, 0.0, places=6)
+        self.assertAlmostEqual(abs_bearing_deg, 90.0, places=1)
 
 
 if __name__ == "__main__":
