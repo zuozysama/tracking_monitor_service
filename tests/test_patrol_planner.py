@@ -126,19 +126,23 @@ class PatrolPlannerTestCase(unittest.TestCase):
         self.assertAlmostEqual(waypoints[0].longitude, route_points[0].longitude, places=7)
         self.assertAlmostEqual(waypoints[0].latitude, route_points[0].latitude, places=7)
 
-    def test_circle_reorders_start_point_to_nearest_ownship_position(self):
+    def test_circle_inside_ownship_uses_lawnmower_and_starts_from_current_position(self):
         center = GeoPoint(longitude=121.5000, latitude=31.2200)
-        task_area = TaskArea(area_type="circle", center=center, radius_m=1000.0)
-        ownship_north = GeoPoint(longitude=121.5000, latitude=31.2290)
+        task_area = TaskArea(area_type="circle", center=center, radius_m=2000.0)
+        ownship_inside = GeoPoint(longitude=121.5000, latitude=31.2200)
 
         waypoints = generate_simple_patrol_waypoints(
             task_area=task_area,
             expected_speed=6.0,
-            ownship_point=ownship_north,
+            scan_radius_m=500.0,
+            boundary_clearance_m=50.0,
+            ownship_point=ownship_inside,
         )
 
-        self.assertGreater(len(waypoints), 0)
-        self.assertGreater(waypoints[0].latitude, center.latitude)
+        self.assertGreater(len(waypoints), 3)
+        self.assertAlmostEqual(waypoints[0].longitude, ownship_inside.longitude, places=7)
+        self.assertAlmostEqual(waypoints[0].latitude, ownship_inside.latitude, places=7)
+        self.assertGreater(len({round(waypoint.latitude, 4) for waypoint in waypoints[1:]}), 1)
 
     def test_inside_radius_strategy_falls_back_when_polygon_is_too_narrow(self):
         task_area = TaskArea(

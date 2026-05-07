@@ -7,6 +7,7 @@ from domain.models import GeoPoint, PatrolWaypoint, TaskArea
 
 EARTH_RADIUS_M = 6371000.0
 START_POINT_MIN_GAP_M = 10.0
+CIRCLE_COVERAGE_POLYGON_POINTS = 72
 
 
 @dataclass
@@ -107,6 +108,23 @@ def _build_circle_waypoints(
             )
         )
     return waypoints
+
+
+def _build_circle_boundary_points(center: GeoPoint, radius_m: float, count: int = CIRCLE_COVERAGE_POLYGON_POINTS) -> List[GeoPoint]:
+    lat_rad = math.radians(center.latitude)
+    cos_lat = max(math.cos(lat_rad), 1e-12)
+    points: List[GeoPoint] = []
+    for idx in range(max(12, count)):
+        angle = 2.0 * math.pi * idx / max(12, count)
+        dx = radius_m * math.cos(angle)
+        dy = radius_m * math.sin(angle)
+        points.append(
+            GeoPoint(
+                longitude=center.longitude + math.degrees(dx / (EARTH_RADIUS_M * cos_lat)),
+                latitude=center.latitude + math.degrees(dy / EARTH_RADIUS_M),
+            )
+        )
+    return points
 
 
 def _reorder_circle_waypoints_by_ownship(
@@ -626,17 +644,21 @@ def generate_simple_patrol_waypoints(
     if task_area.area_type == "circle":
         if task_area.center is None or task_area.radius_m is None:
             return []
-        waypoints = _build_circle_waypoints(
-            center=task_area.center,
-            radius_m=task_area.radius_m,
-            expected_speed=expected_speed,
-            num_points=max(12, num_passes * 3),
+        circle_area = TaskArea(
+            area_type="polygon",
+            points=_build_circle_boundary_points(task_area.center, task_area.radius_m),
         )
-        ordered = _reorder_circle_waypoints_by_ownship(waypoints, center=task_area.center, ownship_point=ownship_point)
-        if ownship_point is None:
-            return ordered
-        entry_point = _build_circle_entry_point(task_area.center, task_area.radius_m, ownship_point)
-        return _prepend_start_waypoint(ordered, entry_point, expected_speed)
+        return generate_simple_patrol_waypoints(
+            task_area=circle_area,
+            expected_speed=expected_speed,
+            num_passes=num_passes,
+            ownship_point=ownship_point,
+            ownship_heading_deg=ownship_heading_deg,
+            max_step_m=max_step_m,
+            scan_radius_m=scan_radius_m,
+            boundary_clearance_m=boundary_clearance_m,
+            start_turn_penalty_m_per_deg=start_turn_penalty_m_per_deg,
+        )
 
     if task_area.area_type == "route":
         return [
