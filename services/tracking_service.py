@@ -22,7 +22,7 @@ from algorithms.patrol_planner import _LocalPoint, _project_from_local, _project
 from algorithms.target_filter import filter_and_select_target
 from algorithms.track_point_generator import (
     bearing_between_points_deg,
-    generate_simple_tracking_point,
+    generate_tracking_candidate_points,
     move_point_by_bearing_and_distance,
     relative_signed_angle_deg,
 )
@@ -31,6 +31,8 @@ from algorithms.track_point_generator import (
 class TrackingService:
     EXPEL_SIDE_AMBIGUOUS_DEG = 5.0
     INTERCEPT_SIDE_AMBIGUOUS_DEG = 5.0
+    POINT_SWITCH_SCORE_MARGIN = 0.15
+    POINT_SWITCH_CONFIRM_CYCLES = 5
 
     def _resolve_tracking_mode(self, task: TaskContext) -> Optional[TrackingMode]:
         if task.task_type == TaskType.ESCORT:
@@ -45,11 +47,92 @@ class TrackingService:
         task.intercept_stage = 0
         task.intercept_side = None
         task.intercept_arrival_stable_cycles = 0
+        self._reset_tracking_point_selection(task)
 
     def _reset_expel_state(self, task: TaskContext) -> None:
         task.expel_stage = 0
         task.expel_side = None
         task.expel_arrival_stable_cycles = 0
+        self._reset_tracking_point_selection(task)
+
+    def _reset_tracking_point_selection(self, task: TaskContext) -> None:
+        task.tracking_point_sector = None
+        task.tracking_point_switch_candidate_sector = None
+        task.tracking_point_switch_confirm_cycles = 0
+
+    def _reset_tracking_point_switch_candidate(self, task: TaskContext) -> None:
+        task.tracking_point_switch_candidate_sector = None
+        task.tracking_point_switch_confirm_cycles = 0
+
+    def _select_tracking_candidate(self, task: TaskContext, candidates: list[dict]) -> Optional[dict]:
+        if not candidates:
+            self._reset_tracking_point_selection(task)
+            return None
+
+        top_candidate = candidates[0]
+        candidate_by_sector = {candidate.get("sector"): candidate for candidate in candidates}
+        current_sector = getattr(task, "tracking_point_sector", None)
+        current_candidate = candidate_by_sector.get(current_sector)
+
+        if current_candidate is None:
+            task.tracking_point_sector = top_candidate.get("sector")
+            self._reset_tracking_point_switch_candidate(task)
+            return top_candidate
+
+        if top_candidate.get("sector") == current_sector:
+            self._reset_tracking_point_switch_candidate(task)
+            return top_candidate
+
+        top_score = float(top_candidate.get("point_score", 0.0))
+        current_score = float(current_candidate.get("point_score", 0.0))
+        if top_score > current_score + self.POINT_SWITCH_SCORE_MARGIN:
+            top_sector = top_candidate.get("sector")
+            if task.tracking_point_switch_candidate_sector == top_sector:
+                task.tracking_point_switch_confirm_cycles += 1
+            else:
+                task.tracking_point_switch_candidate_sector = top_sector
+                task.tracking_point_switch_confirm_cycles = 1
+
+            if task.tracking_point_switch_confirm_cycles >= self.POINT_SWITCH_CONFIRM_CYCLES:
+                task.tracking_point_sector = top_sector
+                self._reset_tracking_point_switch_candidate(task)
+                return top_candidate
+        else:
+            self._reset_tracking_point_switch_candidate(task)
+
+        return current_candidate
+
+    def _generate_tracking_point_with_hysteresis(
+        self,
+        task: TaskContext,
+        mode: TrackingMode,
+        target,
+        ownship,
+    ) -> tuple[GeoPoint, float]:
+        candidates = generate_tracking_candidate_points(
+            mode=mode,
+            target=target,
+            ownship=ownship,
+            escort_distance_m=get_tracking_escort_distance_m(),
+            intercept_distance_m=get_tracking_intercept_distance_m(),
+            expel_distance_m=get_tracking_expel_distance_m(),
+            intercept_stage=task.intercept_stage,
+            intercept_side=task.intercept_side,
+            expel_stage=task.expel_stage,
+            expel_side=task.expel_side,
+        )
+        selected_candidate = self._select_tracking_candidate(task, candidates)
+        if selected_candidate is not None:
+            return selected_candidate["point"], selected_candidate["rel_bearing_deg"]
+
+        target_point = GeoPoint(longitude=target.longitude, latitude=target.latitude)
+        fallback_bearing = (target.heading + 180.0) % 360.0
+        fallback_point = move_point_by_bearing_and_distance(
+            start=target_point,
+            bearing_deg=fallback_bearing,
+            distance_m=get_tracking_escort_distance_m(),
+        )
+        return fallback_point, 180.0
 
     def _task_area_center(self, task: TaskContext) -> Optional[GeoPoint]:
         task_area = task.task_area
@@ -349,6 +432,8 @@ class TrackingService:
             return
 
         previous_target_batch_no = task.current_target_batch_no
+        if previous_target_batch_no not in {None, target.target_batch_no}:
+            self._reset_tracking_point_selection(task)
         if mode == TrackingMode.INTERCEPT and previous_target_batch_no not in {None, target.target_batch_no}:
             self._reset_intercept_state(task)
         if mode == TrackingMode.EXPEL and previous_target_batch_no not in {None, target.target_batch_no}:
@@ -365,17 +450,11 @@ class TrackingService:
         task.last_seen_target_time = utc_now()
 
         point_generation_start_time = utc_now()
-        point, rel_bearing_deg = generate_simple_tracking_point(
+        point, rel_bearing_deg = self._generate_tracking_point_with_hysteresis(
+            task=task,
             mode=mode,
             target=target,
             ownship=ownship,
-            escort_distance_m=get_tracking_escort_distance_m(),
-            intercept_distance_m=get_tracking_intercept_distance_m(),
-            expel_distance_m=get_tracking_expel_distance_m(),
-            intercept_stage=task.intercept_stage,
-            intercept_side=task.intercept_side,
-            expel_stage=task.expel_stage,
-            expel_side=task.expel_side,
         )
         point_generated_time = utc_now()
         print_point_generation_timing(

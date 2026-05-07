@@ -265,6 +265,50 @@ class TrackPointGeneratorTestCase(unittest.TestCase):
 
         self.assertEqual(task.expel_side, "right")
 
+    def test_tracking_point_switch_requires_five_confirmed_better_cycles(self):
+        service = TrackingService()
+        task = SimpleNamespace(
+            tracking_point_sector="rear",
+            tracking_point_switch_candidate_sector=None,
+            tracking_point_switch_confirm_cycles=0,
+        )
+        candidates = [
+            {"sector": "left_rear", "point_score": 1.20},
+            {"sector": "rear", "point_score": 1.00},
+        ]
+
+        for expected_count in range(1, 5):
+            selected = service._select_tracking_candidate(task, candidates)
+            self.assertEqual(selected["sector"], "rear")
+            self.assertEqual(task.tracking_point_sector, "rear")
+            self.assertEqual(task.tracking_point_switch_candidate_sector, "left_rear")
+            self.assertEqual(task.tracking_point_switch_confirm_cycles, expected_count)
+
+        selected = service._select_tracking_candidate(task, candidates)
+        self.assertEqual(selected["sector"], "left_rear")
+        self.assertEqual(task.tracking_point_sector, "left_rear")
+        self.assertIsNone(task.tracking_point_switch_candidate_sector)
+        self.assertEqual(task.tracking_point_switch_confirm_cycles, 0)
+
+    def test_tracking_point_switch_resets_when_advantage_is_not_clear(self):
+        service = TrackingService()
+        task = SimpleNamespace(
+            tracking_point_sector="rear",
+            tracking_point_switch_candidate_sector="left_rear",
+            tracking_point_switch_confirm_cycles=3,
+        )
+        candidates = [
+            {"sector": "left_rear", "point_score": 1.10},
+            {"sector": "rear", "point_score": 1.00},
+        ]
+
+        selected = service._select_tracking_candidate(task, candidates)
+
+        self.assertEqual(selected["sector"], "rear")
+        self.assertEqual(task.tracking_point_sector, "rear")
+        self.assertIsNone(task.tracking_point_switch_candidate_sector)
+        self.assertEqual(task.tracking_point_switch_confirm_cycles, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

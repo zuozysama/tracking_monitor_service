@@ -27,10 +27,10 @@ PATROL_NUM_PASSES = 8
 
 # Use None to simulate an empty PATROL_SCAN_RADIUS_M value. When set, polygon
 # lane spacing is forced to 2 * PATROL_SCAN_RADIUS_M.
-PATROL_SCAN_RADIUS_M: float | None = 2500.0
+PATROL_SCAN_RADIUS_M: float | None = 800.0
 
 # Use None to simulate an empty PATROL_BOUNDARY_CLEARANCE_M value.
-PATROL_BOUNDARY_CLEARANCE_M: float | None = 200.0
+PATROL_BOUNDARY_CLEARANCE_M: float | None = 50.0
 
 EXPECTED_SPEED = 12.0
 MAX_STEP_M: float | None = None
@@ -40,19 +40,18 @@ START_TURN_PENALTY_M_PER_DEG = 0.5
 # route start. Heading uses navigation convention: 0 north, 90 east.
 # OWNSHIP_LONGITUDE = 124.99
 # OWNSHIP_LATITUDE = 21.30
-OWNSHIP_LONGITUDE = 124.55
-OWNSHIP_LATITUDE = 21.40
-OWNSHIP_HEADING_DEG: float | None = 90.0
+OWNSHIP_LONGITUDE = 124.3819
+OWNSHIP_LATITUDE = 21.3189
+OWNSHIP_HEADING_DEG: float | None = 0.0
 
 # Coordinates from Linux_demo/send_task_tracking.sh. The patrol planner
 # normalizes polygon winding internally.
 SEND_TASK_POLYGON_POINTS = [
-    (124.20, 21.53),
-    (124.79, 21.53),
-    (124.50, 21.60),
-    (124.20, 21.30),
-    (124.90, 21.40),
-    (124.79, 21.30),
+    (124.358149, 21.324546),
+    (124.467141, 21.324364),
+    (124.485703, 21.373004),
+    (124.429735, 21.407505),
+    (124.358155, 21.400030),
 ]
 
 DRAW_SCAN_RADIUS_CIRCLES = True
