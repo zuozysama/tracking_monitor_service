@@ -7,6 +7,7 @@ from domain.models import GeoPoint, PatrolWaypoint, TaskArea
 
 EARTH_RADIUS_M = 6371000.0
 START_POINT_MIN_GAP_M = 10.0
+CIRCLE_COVERAGE_POLYGON_POINTS = 72
 
 
 @dataclass
@@ -107,6 +108,23 @@ def _build_circle_waypoints(
             )
         )
     return waypoints
+
+
+def _build_circle_boundary_points(center: GeoPoint, radius_m: float, count: int = CIRCLE_COVERAGE_POLYGON_POINTS) -> List[GeoPoint]:
+    lat_rad = math.radians(center.latitude)
+    cos_lat = max(math.cos(lat_rad), 1e-12)
+    points: List[GeoPoint] = []
+    for idx in range(max(12, count)):
+        angle = 2.0 * math.pi * idx / max(12, count)
+        dx = radius_m * math.cos(angle)
+        dy = radius_m * math.sin(angle)
+        points.append(
+            GeoPoint(
+                longitude=center.longitude + math.degrees(dx / (EARTH_RADIUS_M * cos_lat)),
+                latitude=center.latitude + math.degrees(dy / EARTH_RADIUS_M),
+            )
+        )
+    return points
 
 
 def _reorder_circle_waypoints_by_ownship(
@@ -377,12 +395,13 @@ def _build_scan_positions(min_y: float, max_y: float, scan_margin: float, spacin
     if start > end:
         return [(min_y + max_y) / 2.0]
 
-    ys = [start]
-    while ys[-1] + spacing < end - 1e-6:
-        ys.append(ys[-1] + spacing)
-    if end - ys[-1] > 1e-6:
-        ys.append(end)
-    return ys
+    usable_span = end - start
+    if usable_span <= 1e-6:
+        return [(start + end) / 2.0]
+
+    lane_count = max(2, int(math.ceil(usable_span / max(spacing, 1.0))) + 1)
+    actual_spacing = usable_span / max(lane_count - 1, 1)
+    return [start + idx * actual_spacing for idx in range(lane_count)]
 
 
 def _estimate_scan_count(min_y: float, max_y: float, scan_margin: float, spacing: float) -> int:
@@ -420,6 +439,7 @@ def _build_coverage_path(
     polygon: List[Tuple[float, float]],
     sweep_angle_deg: float,
     scan_margin: float,
+    endpoint_margin: float,
     spacing: float,
     start_left_to_right: bool = True,
     reverse_scan_positions: bool = False,
@@ -429,10 +449,6 @@ def _build_coverage_path(
     scan_positions = _build_scan_positions(min(ys), max(ys), scan_margin, spacing)
     if reverse_scan_positions:
         scan_positions = list(reversed(scan_positions))
-
-    # boundary_clearance is already reflected in scan_margin at the caller,
-    # so we keep endpoint margin consistent with scanline margin.
-    inner_margin = scan_margin
 
     raw_points: List[Tuple[float, float]] = []
     left_to_right = start_left_to_right
@@ -448,17 +464,23 @@ def _build_coverage_path(
 
         for x_start, x_end in ordered:
             if x_end >= x_start:
-                inner_start = x_start + inner_margin
-                inner_end = x_end - inner_margin
+                inner_start = x_start + endpoint_margin
+                inner_end = x_end - endpoint_margin
             else:
-                inner_start = x_start - inner_margin
-                inner_end = x_end + inner_margin
+                inner_start = x_start - endpoint_margin
+                inner_end = x_end + endpoint_margin
 
             if abs(inner_end - inner_start) <= 1e-6:
+                midpoint = (x_start + x_end) / 2.0
+                raw_points.append(_rotate_xy(midpoint, y_scan, sweep_angle_deg))
                 continue
             if x_end >= x_start and inner_end <= inner_start:
+                midpoint = (x_start + x_end) / 2.0
+                raw_points.append(_rotate_xy(midpoint, y_scan, sweep_angle_deg))
                 continue
             if x_end < x_start and inner_end >= inner_start:
+                midpoint = (x_start + x_end) / 2.0
+                raw_points.append(_rotate_xy(midpoint, y_scan, sweep_angle_deg))
                 continue
 
             raw_points.append(_rotate_xy(inner_start, y_scan, sweep_angle_deg))
@@ -567,10 +589,26 @@ def _compute_entry_scan_offset(
     return abs(first_scan_y - entry_scan_y)
 
 
+def _build_inside_start_variants(points: List[_LocalPoint]) -> List[List[_LocalPoint]]:
+    variants: List[List[_LocalPoint]] = []
+    if not points:
+        return variants
+
+    for idx in range(len(points)):
+        forward_first = points[idx:] + list(reversed(points[:idx]))
+        backward_first = list(reversed(points[: idx + 1])) + points[idx + 1 :]
+        if forward_first:
+            variants.append(forward_first)
+        if backward_first:
+            variants.append(backward_first)
+    return variants
+
+
 def _generate_candidate_paths(
     polygon_xy: List[Tuple[float, float]],
     sweep_angle_deg: float,
     scan_margin: float,
+    endpoint_margin: float,
     spacing: float,
 ) -> List[List[_LocalPoint]]:
     candidates: List[List[_LocalPoint]] = []
@@ -580,6 +618,7 @@ def _generate_candidate_paths(
                 polygon=polygon_xy,
                 sweep_angle_deg=sweep_angle_deg,
                 scan_margin=scan_margin,
+                endpoint_margin=endpoint_margin,
                 spacing=spacing,
                 start_left_to_right=start_left_to_right,
                 reverse_scan_positions=reverse_scan_positions,
@@ -605,17 +644,21 @@ def generate_simple_patrol_waypoints(
     if task_area.area_type == "circle":
         if task_area.center is None or task_area.radius_m is None:
             return []
-        waypoints = _build_circle_waypoints(
-            center=task_area.center,
-            radius_m=task_area.radius_m,
-            expected_speed=expected_speed,
-            num_points=max(12, num_passes * 3),
+        circle_area = TaskArea(
+            area_type="polygon",
+            points=_build_circle_boundary_points(task_area.center, task_area.radius_m),
         )
-        ordered = _reorder_circle_waypoints_by_ownship(waypoints, center=task_area.center, ownship_point=ownship_point)
-        if ownship_point is None:
-            return ordered
-        entry_point = _build_circle_entry_point(task_area.center, task_area.radius_m, ownship_point)
-        return _prepend_start_waypoint(ordered, entry_point, expected_speed)
+        return generate_simple_patrol_waypoints(
+            task_area=circle_area,
+            expected_speed=expected_speed,
+            num_passes=num_passes,
+            ownship_point=ownship_point,
+            ownship_heading_deg=ownship_heading_deg,
+            max_step_m=max_step_m,
+            scan_radius_m=scan_radius_m,
+            boundary_clearance_m=boundary_clearance_m,
+            start_turn_penalty_m_per_deg=start_turn_penalty_m_per_deg,
+        )
 
     if task_area.area_type == "route":
         return [
@@ -635,7 +678,8 @@ def generate_simple_patrol_waypoints(
     ys = [point.y for point in local_polygon]
     span_y = max(ys) - min(ys)
     if scan_radius_m is not None and scan_radius_m > 0:
-        # When explicit scan radius is provided, enforce sensor-consistent lane spacing.
+        # Use the sensor diameter as the maximum lane spacing. Scan positions
+        # are then evenly distributed for the resulting minimum lane count.
         search_radius = scan_radius_m
         spacing = max(2.0 * search_radius, 1.0)
     else:
@@ -647,8 +691,8 @@ def generate_simple_patrol_waypoints(
         else min(max(spacing * 0.05, 0.0), 5.0)
     )
 
-    required_safe_margin = max(search_radius - boundary_clearance, 0.0)
-    scan_margin = required_safe_margin
+    scan_margin = max(search_radius * 0.5, boundary_clearance)
+    endpoint_margin = max(search_radius * 0.5, boundary_clearance)
 
     sweep_angle_deg = _choose_sweep_angle(
         polygon=polygon_xy,
@@ -659,6 +703,7 @@ def generate_simple_patrol_waypoints(
         polygon_xy=polygon_xy,
         sweep_angle_deg=sweep_angle_deg,
         scan_margin=scan_margin,
+        endpoint_margin=endpoint_margin,
         spacing=spacing,
     )
     if not candidate_paths:
@@ -666,6 +711,7 @@ def generate_simple_patrol_waypoints(
             polygon_xy=polygon_xy,
             sweep_angle_deg=sweep_angle_deg,
             scan_margin=search_radius,
+            endpoint_margin=endpoint_margin,
             spacing=spacing,
         )
 
@@ -686,44 +732,63 @@ def generate_simple_patrol_waypoints(
         safe_path = _filter_points_in_safe_zone(
             points=dense_path,
             polygon_xy=polygon_xy,
-            required_margin_m=required_safe_margin,
+            required_margin_m=boundary_clearance,
         )
         prepared_candidate_paths.append(safe_path if safe_path else dense_path)
 
     entry_point = None
     entry_local = None
     approach_heading_deg = None
+    start_point = None
     selected_path = prepared_candidate_paths[0]
     if ownship_point is not None:
         ownship_local = _project_point_to_local(ownship_point, ref_lon=ref_lon, ref_lat=ref_lat)
-        entry_point = _build_polygon_entry_point(local_polygon, ref_lon, ref_lat, ownship_point)
-        entry_local = _project_point_to_local(entry_point, ref_lon=ref_lon, ref_lat=ref_lat)
-        if _distance_m(entry_local.x - ownship_local.x, entry_local.y - ownship_local.y) > 1e-6:
-            approach_heading_deg = _bearing_from_vector(entry_local.x - ownship_local.x, entry_local.y - ownship_local.y)
-        else:
-            approach_heading_deg = ownship_heading_deg
-        selected_path = min(
-            prepared_candidate_paths,
-            key=lambda points: (
-                _compute_entry_scan_offset(
-                    points=points,
-                    entry_point=entry_local,
-                    sweep_angle_deg=sweep_angle_deg,
-                ),
-                _compute_entry_start_cost(
-                    points=points,
-                    entry_point=entry_local,
-                    approach_heading_deg=approach_heading_deg,
-                    turn_penalty_m_per_deg=turn_penalty,
-                ),
-                _compute_start_cost(
+        if _point_in_polygon((ownship_local.x, ownship_local.y), polygon_xy):
+            start_point = ownship_point
+            inside_start_variants: List[List[_LocalPoint]] = []
+            for path in prepared_candidate_paths:
+                inside_start_variants.extend(_build_inside_start_variants(path))
+            if inside_start_variants:
+                prepared_candidate_paths = inside_start_variants
+            selected_path = min(
+                prepared_candidate_paths,
+                key=lambda points: _compute_start_cost(
                     points=points,
                     ownship_point=ownship_local,
                     ownship_heading_deg=ownship_heading_deg,
                     turn_penalty_m_per_deg=turn_penalty,
                 ),
-            ),
-        )
+            )
+        else:
+            entry_point = _build_polygon_entry_point(local_polygon, ref_lon, ref_lat, ownship_point)
+            start_point = entry_point
+            entry_local = _project_point_to_local(entry_point, ref_lon=ref_lon, ref_lat=ref_lat)
+            if _distance_m(entry_local.x - ownship_local.x, entry_local.y - ownship_local.y) > 1e-6:
+                approach_heading_deg = _bearing_from_vector(entry_local.x - ownship_local.x, entry_local.y - ownship_local.y)
+            else:
+                approach_heading_deg = ownship_heading_deg
+            selected_path = min(
+                prepared_candidate_paths,
+                key=lambda points: (
+                    _compute_entry_scan_offset(
+                        points=points,
+                        entry_point=entry_local,
+                        sweep_angle_deg=sweep_angle_deg,
+                    ),
+                    _compute_entry_start_cost(
+                        points=points,
+                        entry_point=entry_local,
+                        approach_heading_deg=approach_heading_deg,
+                        turn_penalty_m_per_deg=turn_penalty,
+                    ),
+                    _compute_start_cost(
+                        points=points,
+                        ownship_point=ownship_local,
+                        ownship_heading_deg=ownship_heading_deg,
+                        turn_penalty_m_per_deg=turn_penalty,
+                    ),
+                ),
+            )
 
     geo_waypoints = [
         PatrolWaypoint(
@@ -738,6 +803,6 @@ def generate_simple_patrol_waypoints(
     ]
     if ownship_point is None:
         return geo_waypoints
-    if entry_point is None:
-        entry_point = _build_polygon_entry_point(local_polygon, ref_lon, ref_lat, ownship_point)
-    return _prepend_start_waypoint(geo_waypoints, entry_point, expected_speed)
+    if start_point is None:
+        start_point = _build_polygon_entry_point(local_polygon, ref_lon, ref_lat, ownship_point)
+    return _prepend_start_waypoint(geo_waypoints, start_point, expected_speed)

@@ -510,6 +510,9 @@ class TaskContext(CompatModel):
     expel_stage: int = 0
     expel_side: Optional[str] = None
     expel_arrival_stable_cycles: int = 0
+    tracking_point_sector: Optional[str] = None
+    tracking_point_switch_candidate_sector: Optional[str] = None
+    tracking_point_switch_confirm_cycles: int = 0
     recommended_point: Optional[RecommendedPoint] = None
     last_seen_target_time: Optional[datetime] = None
     candidate_targets: Optional[List[Dict[str, Any]]] = None
