@@ -377,12 +377,13 @@ def _build_scan_positions(min_y: float, max_y: float, scan_margin: float, spacin
     if start > end:
         return [(min_y + max_y) / 2.0]
 
-    ys = [start]
-    while ys[-1] + spacing < end - 1e-6:
-        ys.append(ys[-1] + spacing)
-    if end - ys[-1] > 1e-6:
-        ys.append(end)
-    return ys
+    usable_span = end - start
+    if usable_span <= 1e-6:
+        return [(start + end) / 2.0]
+
+    lane_count = max(2, int(math.ceil(usable_span / max(spacing, 1.0))) + 1)
+    actual_spacing = usable_span / max(lane_count - 1, 1)
+    return [start + idx * actual_spacing for idx in range(lane_count)]
 
 
 def _estimate_scan_count(min_y: float, max_y: float, scan_margin: float, spacing: float) -> int:
@@ -420,6 +421,7 @@ def _build_coverage_path(
     polygon: List[Tuple[float, float]],
     sweep_angle_deg: float,
     scan_margin: float,
+    endpoint_margin: float,
     spacing: float,
     start_left_to_right: bool = True,
     reverse_scan_positions: bool = False,
@@ -429,10 +431,6 @@ def _build_coverage_path(
     scan_positions = _build_scan_positions(min(ys), max(ys), scan_margin, spacing)
     if reverse_scan_positions:
         scan_positions = list(reversed(scan_positions))
-
-    # boundary_clearance is already reflected in scan_margin at the caller,
-    # so we keep endpoint margin consistent with scanline margin.
-    inner_margin = scan_margin
 
     raw_points: List[Tuple[float, float]] = []
     left_to_right = start_left_to_right
@@ -448,17 +446,23 @@ def _build_coverage_path(
 
         for x_start, x_end in ordered:
             if x_end >= x_start:
-                inner_start = x_start + inner_margin
-                inner_end = x_end - inner_margin
+                inner_start = x_start + endpoint_margin
+                inner_end = x_end - endpoint_margin
             else:
-                inner_start = x_start - inner_margin
-                inner_end = x_end + inner_margin
+                inner_start = x_start - endpoint_margin
+                inner_end = x_end + endpoint_margin
 
             if abs(inner_end - inner_start) <= 1e-6:
+                midpoint = (x_start + x_end) / 2.0
+                raw_points.append(_rotate_xy(midpoint, y_scan, sweep_angle_deg))
                 continue
             if x_end >= x_start and inner_end <= inner_start:
+                midpoint = (x_start + x_end) / 2.0
+                raw_points.append(_rotate_xy(midpoint, y_scan, sweep_angle_deg))
                 continue
             if x_end < x_start and inner_end >= inner_start:
+                midpoint = (x_start + x_end) / 2.0
+                raw_points.append(_rotate_xy(midpoint, y_scan, sweep_angle_deg))
                 continue
 
             raw_points.append(_rotate_xy(inner_start, y_scan, sweep_angle_deg))
@@ -571,6 +575,7 @@ def _generate_candidate_paths(
     polygon_xy: List[Tuple[float, float]],
     sweep_angle_deg: float,
     scan_margin: float,
+    endpoint_margin: float,
     spacing: float,
 ) -> List[List[_LocalPoint]]:
     candidates: List[List[_LocalPoint]] = []
@@ -580,6 +585,7 @@ def _generate_candidate_paths(
                 polygon=polygon_xy,
                 sweep_angle_deg=sweep_angle_deg,
                 scan_margin=scan_margin,
+                endpoint_margin=endpoint_margin,
                 spacing=spacing,
                 start_left_to_right=start_left_to_right,
                 reverse_scan_positions=reverse_scan_positions,
@@ -635,7 +641,8 @@ def generate_simple_patrol_waypoints(
     ys = [point.y for point in local_polygon]
     span_y = max(ys) - min(ys)
     if scan_radius_m is not None and scan_radius_m > 0:
-        # When explicit scan radius is provided, enforce sensor-consistent lane spacing.
+        # Use the sensor diameter as the maximum lane spacing. Scan positions
+        # are then evenly distributed for the resulting minimum lane count.
         search_radius = scan_radius_m
         spacing = max(2.0 * search_radius, 1.0)
     else:
@@ -647,8 +654,8 @@ def generate_simple_patrol_waypoints(
         else min(max(spacing * 0.05, 0.0), 5.0)
     )
 
-    required_safe_margin = max(search_radius - boundary_clearance, 0.0)
-    scan_margin = required_safe_margin
+    scan_margin = max(search_radius * 0.5, boundary_clearance)
+    endpoint_margin = max(search_radius * 0.5, boundary_clearance)
 
     sweep_angle_deg = _choose_sweep_angle(
         polygon=polygon_xy,
@@ -659,6 +666,7 @@ def generate_simple_patrol_waypoints(
         polygon_xy=polygon_xy,
         sweep_angle_deg=sweep_angle_deg,
         scan_margin=scan_margin,
+        endpoint_margin=endpoint_margin,
         spacing=spacing,
     )
     if not candidate_paths:
@@ -666,6 +674,7 @@ def generate_simple_patrol_waypoints(
             polygon_xy=polygon_xy,
             sweep_angle_deg=sweep_angle_deg,
             scan_margin=search_radius,
+            endpoint_margin=endpoint_margin,
             spacing=spacing,
         )
 
@@ -686,7 +695,7 @@ def generate_simple_patrol_waypoints(
         safe_path = _filter_points_in_safe_zone(
             points=dense_path,
             polygon_xy=polygon_xy,
-            required_margin_m=required_safe_margin,
+            required_margin_m=boundary_clearance,
         )
         prepared_candidate_paths.append(safe_path if safe_path else dense_path)
 

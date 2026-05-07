@@ -27,7 +27,7 @@ PATROL_NUM_PASSES = 8
 
 # Use None to simulate an empty PATROL_SCAN_RADIUS_M value. When set, polygon
 # lane spacing is forced to 2 * PATROL_SCAN_RADIUS_M.
-PATROL_SCAN_RADIUS_M: float | None = 800.0
+PATROL_SCAN_RADIUS_M: float | None = 1000.0
 
 # Use None to simulate an empty PATROL_BOUNDARY_CLEARANCE_M value.
 PATROL_BOUNDARY_CLEARANCE_M: float | None = 50.0
