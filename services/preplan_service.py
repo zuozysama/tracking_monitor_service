@@ -8,6 +8,7 @@ from utils.config_utils import (
     get_patrol_num_passes,
     get_patrol_scan_radius_m,
 )
+from utils.point_timing_log import print_point_generation_timing
 from algorithms.patrol_planner import generate_simple_patrol_waypoints
 
 
@@ -36,6 +37,7 @@ class PreplanService:
             ownship_point = GeoPoint(longitude=ownship.longitude, latitude=ownship.latitude)
             ownship_heading_deg = ownship.heading
 
+        point_generation_start_time = utc_now()
         waypoints = generate_simple_patrol_waypoints(
             task_area=task.task_area,
             expected_speed=task.expected_speed or 0.0,
@@ -45,6 +47,14 @@ class PreplanService:
             scan_radius_m=get_patrol_scan_radius_m(),
             boundary_clearance_m=get_patrol_boundary_clearance_m(),
         )
+        point_generated_time = utc_now()
+        print_point_generation_timing(
+            task=task,
+            point_generation_start_time=point_generation_start_time,
+            point_generated_time=point_generated_time,
+            point_type="preplan_patrol_waypoints",
+            point_count=len(waypoints),
+        )
 
         task.preplan_output = PreplanOutput(
             task_id=task.task_id,
@@ -52,7 +62,7 @@ class PreplanService:
             feasible=True,
             reason="方案可执行",
         )
-        now = utc_now()
+        now = point_generated_time
         task.status = TaskStatus.COMPLETED
         task.end_time = now
         task.update_time = now

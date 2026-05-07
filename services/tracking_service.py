@@ -16,6 +16,7 @@ from utils.config_utils import (
     get_tracking_max_target_range_m,
 )
 from utils.geo_utils import haversine_distance_m
+from utils.point_timing_log import print_point_generation_timing
 from utils.time_utils import utc_now
 from algorithms.patrol_planner import _LocalPoint, _project_from_local, _project_to_local
 from algorithms.target_filter import filter_and_select_target
@@ -363,6 +364,7 @@ class TrackingService:
         task.current_target_batch_no = target.target_batch_no
         task.last_seen_target_time = utc_now()
 
+        point_generation_start_time = utc_now()
         point, rel_bearing_deg = generate_simple_tracking_point(
             mode=mode,
             target=target,
@@ -374,6 +376,14 @@ class TrackingService:
             intercept_side=task.intercept_side,
             expel_stage=task.expel_stage,
             expel_side=task.expel_side,
+        )
+        point_generated_time = utc_now()
+        print_point_generation_timing(
+            task=task,
+            point_generation_start_time=point_generation_start_time,
+            point_generated_time=point_generated_time,
+            point_type=f"{mode.value}_tracking_point",
+            point_count=1,
         )
 
         if mode == TrackingMode.ESCORT:
@@ -396,7 +406,7 @@ class TrackingService:
             rel_bearing_deg=rel_bearing_deg,
             expected_heading=target.heading,
             expected_speed=exp_speed,
-            update_time=utc_now(),
+            update_time=point_generated_time,
         )
 
         task.patrol_plan_output = None
@@ -407,10 +417,10 @@ class TrackingService:
             rel_range_m=rel_range_m,
             relative_bearing_deg=rel_bearing_deg,
             expected_speed=exp_speed,
-            update_time=utc_now(),
+            update_time=point_generated_time,
         )
 
-        task.update_time = utc_now()
+        task.update_time = point_generated_time
         task_store.update_task(task)
 
         collaboration_service.handle_tracking_collaboration(task, ownship)
