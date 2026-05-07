@@ -38,10 +38,10 @@ START_TURN_PENALTY_M_PER_DEG = 0.5
 
 # Ownship settings shown on the figure and used by the planner to choose the
 # route start. Heading uses navigation convention: 0 north, 90 east.
-# OWNSHIP_LONGITUDE = 124.99
-# OWNSHIP_LATITUDE = 21.30
 OWNSHIP_LONGITUDE = 124.3819
 OWNSHIP_LATITUDE = 21.3189
+# OWNSHIP_LONGITUDE = 124.3585
+# OWNSHIP_LATITUDE = 21.3589
 OWNSHIP_HEADING_DEG: float | None = 0.0
 
 # Coordinates from Linux_demo/send_task_tracking.sh. The patrol planner

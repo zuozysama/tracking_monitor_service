@@ -571,6 +571,21 @@ def _compute_entry_scan_offset(
     return abs(first_scan_y - entry_scan_y)
 
 
+def _build_inside_start_variants(points: List[_LocalPoint]) -> List[List[_LocalPoint]]:
+    variants: List[List[_LocalPoint]] = []
+    if not points:
+        return variants
+
+    for idx in range(len(points)):
+        forward_first = points[idx:] + list(reversed(points[:idx]))
+        backward_first = list(reversed(points[: idx + 1])) + points[idx + 1 :]
+        if forward_first:
+            variants.append(forward_first)
+        if backward_first:
+            variants.append(backward_first)
+    return variants
+
+
 def _generate_candidate_paths(
     polygon_xy: List[Tuple[float, float]],
     sweep_angle_deg: float,
@@ -702,37 +717,56 @@ def generate_simple_patrol_waypoints(
     entry_point = None
     entry_local = None
     approach_heading_deg = None
+    start_point = None
     selected_path = prepared_candidate_paths[0]
     if ownship_point is not None:
         ownship_local = _project_point_to_local(ownship_point, ref_lon=ref_lon, ref_lat=ref_lat)
-        entry_point = _build_polygon_entry_point(local_polygon, ref_lon, ref_lat, ownship_point)
-        entry_local = _project_point_to_local(entry_point, ref_lon=ref_lon, ref_lat=ref_lat)
-        if _distance_m(entry_local.x - ownship_local.x, entry_local.y - ownship_local.y) > 1e-6:
-            approach_heading_deg = _bearing_from_vector(entry_local.x - ownship_local.x, entry_local.y - ownship_local.y)
-        else:
-            approach_heading_deg = ownship_heading_deg
-        selected_path = min(
-            prepared_candidate_paths,
-            key=lambda points: (
-                _compute_entry_scan_offset(
-                    points=points,
-                    entry_point=entry_local,
-                    sweep_angle_deg=sweep_angle_deg,
-                ),
-                _compute_entry_start_cost(
-                    points=points,
-                    entry_point=entry_local,
-                    approach_heading_deg=approach_heading_deg,
-                    turn_penalty_m_per_deg=turn_penalty,
-                ),
-                _compute_start_cost(
+        if _point_in_polygon((ownship_local.x, ownship_local.y), polygon_xy):
+            start_point = ownship_point
+            inside_start_variants: List[List[_LocalPoint]] = []
+            for path in prepared_candidate_paths:
+                inside_start_variants.extend(_build_inside_start_variants(path))
+            if inside_start_variants:
+                prepared_candidate_paths = inside_start_variants
+            selected_path = min(
+                prepared_candidate_paths,
+                key=lambda points: _compute_start_cost(
                     points=points,
                     ownship_point=ownship_local,
                     ownship_heading_deg=ownship_heading_deg,
                     turn_penalty_m_per_deg=turn_penalty,
                 ),
-            ),
-        )
+            )
+        else:
+            entry_point = _build_polygon_entry_point(local_polygon, ref_lon, ref_lat, ownship_point)
+            start_point = entry_point
+            entry_local = _project_point_to_local(entry_point, ref_lon=ref_lon, ref_lat=ref_lat)
+            if _distance_m(entry_local.x - ownship_local.x, entry_local.y - ownship_local.y) > 1e-6:
+                approach_heading_deg = _bearing_from_vector(entry_local.x - ownship_local.x, entry_local.y - ownship_local.y)
+            else:
+                approach_heading_deg = ownship_heading_deg
+            selected_path = min(
+                prepared_candidate_paths,
+                key=lambda points: (
+                    _compute_entry_scan_offset(
+                        points=points,
+                        entry_point=entry_local,
+                        sweep_angle_deg=sweep_angle_deg,
+                    ),
+                    _compute_entry_start_cost(
+                        points=points,
+                        entry_point=entry_local,
+                        approach_heading_deg=approach_heading_deg,
+                        turn_penalty_m_per_deg=turn_penalty,
+                    ),
+                    _compute_start_cost(
+                        points=points,
+                        ownship_point=ownship_local,
+                        ownship_heading_deg=ownship_heading_deg,
+                        turn_penalty_m_per_deg=turn_penalty,
+                    ),
+                ),
+            )
 
     geo_waypoints = [
         PatrolWaypoint(
@@ -747,6 +781,6 @@ def generate_simple_patrol_waypoints(
     ]
     if ownship_point is None:
         return geo_waypoints
-    if entry_point is None:
-        entry_point = _build_polygon_entry_point(local_polygon, ref_lon, ref_lat, ownship_point)
-    return _prepend_start_waypoint(geo_waypoints, entry_point, expected_speed)
+    if start_point is None:
+        start_point = _build_polygon_entry_point(local_polygon, ref_lon, ref_lat, ownship_point)
+    return _prepend_start_waypoint(geo_waypoints, start_point, expected_speed)

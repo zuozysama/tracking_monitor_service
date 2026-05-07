@@ -308,6 +308,44 @@ class PatrolPlannerTestCase(unittest.TestCase):
         self.assertAlmostEqual(waypoints[0].longitude, polygon_points[3].longitude, places=6)
         self.assertAlmostEqual(waypoints[0].latitude, polygon_points[3].latitude, places=6)
 
+    def test_polygon_inside_ownship_starts_from_current_position(self):
+        polygon_points = [
+            GeoPoint(longitude=121.0000, latitude=31.0000),
+            GeoPoint(longitude=121.0200, latitude=31.0000),
+            GeoPoint(longitude=121.0200, latitude=31.0200),
+            GeoPoint(longitude=121.0000, latitude=31.0200),
+        ]
+        task_area = TaskArea(area_type="polygon", points=polygon_points)
+        ownship_inside = GeoPoint(longitude=121.0067, latitude=31.0063)
+
+        waypoints = generate_simple_patrol_waypoints(
+            task_area=task_area,
+            expected_speed=6.0,
+            num_passes=8,
+            scan_radius_m=300.0,
+            ownship_point=ownship_inside,
+            ownship_heading_deg=45.0,
+        )
+
+        self.assertGreater(len(waypoints), 1)
+        self.assertAlmostEqual(waypoints[0].longitude, ownship_inside.longitude, places=7)
+        self.assertAlmostEqual(waypoints[0].latitude, ownship_inside.latitude, places=7)
+        self.assertLess(
+            _project_point_to_local(
+                GeoPoint(longitude=waypoints[1].longitude, latitude=waypoints[1].latitude),
+                ownship_inside.longitude,
+                ownship_inside.latitude,
+            ).x
+            ** 2
+            + _project_point_to_local(
+                GeoPoint(longitude=waypoints[1].longitude, latitude=waypoints[1].latitude),
+                ownship_inside.longitude,
+                ownship_inside.latitude,
+            ).y
+            ** 2,
+            500.0**2,
+        )
+
     def test_circle_prepends_boundary_intersection_as_start_waypoint(self):
         center = GeoPoint(longitude=121.5000, latitude=31.2200)
         task_area = TaskArea(area_type="circle", center=center, radius_m=1000.0)
