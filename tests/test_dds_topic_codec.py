@@ -3,6 +3,7 @@ import unittest
 
 from adapters.dds.topic_codec import decode_topic_payload, encode_topic_payload
 from domain.dds_contract import (
+    ELECTRO_OPTICAL_LINKAGE_CMD_TOPIC,
     MANUAL_SELECTION_REQUEST_TOPIC,
     MANUAL_SWITCH_REQUEST_TOPIC,
     OWNSHIP_NAVIGATION_TOPIC,
@@ -388,6 +389,51 @@ class TopicCodecDecodeTestCase(unittest.TestCase):
         self.assertEqual(decoded["waypoint_count"], 6)
         self.assertEqual(decoded["finish_reason"], 4)
         self.assertEqual(decoded["decode_format"], "task_update_21_plus_100_fields")
+
+    def test_encode_photoelectric_require_21_plus_63(self):
+        body = encode_topic_payload(
+            ELECTRO_OPTICAL_LINKAGE_CMD_TOPIC,
+            {
+                "protocol_type": 0,
+                "protocol_version": 1,
+                "msg_type": 1,
+                "msg_seq": 77,
+                "reserve": 0,
+                "timestamp_sec": 1700000000,
+                "timestamp_millisecond_raw": 123000000,
+                "task_status": 1,
+                "target_batch_no": 301,
+            },
+        )
+
+        self.assertEqual(ELECTRO_OPTICAL_LINKAGE_CMD_TOPIC, "cc_lm_base_load_manager.v1.photoelectric_require")
+        self.assertEqual(len(body), 84)
+        protocol_type, version, packet_len, msg_type, seq, reserve, timestamp_sec, timestamp_ms_raw = struct.unpack(
+            ">IBHBIBII",
+            body[:21],
+        )
+        self.assertEqual(protocol_type, 0)
+        self.assertEqual(version, 1)
+        self.assertEqual(packet_len, 84)
+        self.assertEqual(msg_type, 1)
+        self.assertEqual(seq, 77)
+        self.assertEqual(reserve, 0)
+        self.assertEqual(timestamp_sec, 1700000000)
+        self.assertEqual(timestamp_ms_raw, 123000000)
+
+        decoded = decode_topic_payload(ELECTRO_OPTICAL_LINKAGE_CMD_TOPIC, body)
+        self.assertEqual(decoded["decode_format"], "photoelectric_require_21_plus_63_fields")
+        self.assertEqual(decoded["raw_len"], 84)
+        self.assertEqual(decoded["business_raw_len"], 63)
+        self.assertEqual(decoded["dispatch_request_source"], 0)
+        self.assertEqual(decoded["task_status"], 1)
+        self.assertEqual(decoded["dispatch_task_type"], 1)
+        self.assertEqual(decoded["target_batch_no"], 301)
+        self.assertEqual(decoded["task_type"], 0)
+        self.assertEqual(decoded["task_no"], 0)
+        self.assertEqual(decoded["guidance_region_type"], 0)
+        self.assertEqual(decoded["rectangle_point1_longitude_raw"], 0)
+        self.assertEqual(decoded["reserved30_hex"], "00 00 00 00 00 00 00 00")
 
     def test_encode_stream_media_21_plus_869(self):
         body = encode_topic_payload(

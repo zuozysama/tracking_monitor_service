@@ -5,6 +5,8 @@ import time
 from fastapi.testclient import TestClient
 
 from app import app
+from adapters.dds.topic_codec import decode_topic_payload
+from domain.dds_contract import ELECTRO_OPTICAL_LINKAGE_CMD_TOPIC
 from services.task_service import task_service
 from store.collaboration_store import collaboration_store
 from store.situation_store import situation_store
@@ -1154,6 +1156,36 @@ class ApiContractTestCase(unittest.TestCase):
         ]
         self.assertTrue(task_cmds)
         self.assertEqual(task_cmds[-1].get("payload", {}).get("task_status"), 1)
+
+        publish_logs = self.client.get("/mock/collaboration/dds/publish-logs").json()["data"]["items"]
+        optical_publish_logs = [
+            item for item in publish_logs if item.get("topic") == ELECTRO_OPTICAL_LINKAGE_CMD_TOPIC
+        ]
+        self.assertTrue(optical_publish_logs)
+        open_payload = optical_publish_logs[-1]["payload"]
+        self.assertEqual(open_payload["task_status"], 1)
+        self.assertEqual(open_payload["target_batch_no"], 301)
+        open_raw = bytes.fromhex(optical_publish_logs[-1]["raw_hex"])
+        self.assertEqual(len(open_raw), 84)
+        open_decoded = decode_topic_payload(ELECTRO_OPTICAL_LINKAGE_CMD_TOPIC, open_raw)
+        self.assertEqual(open_decoded["dispatch_request_source"], 0)
+        self.assertEqual(open_decoded["dispatch_task_type"], 1)
+        self.assertEqual(open_decoded["target_batch_no"], 301)
+
+        terminate_resp = self.client.post(
+            f"/api/v1/tasks/{task_id}/terminate",
+            json={"reason": "test close optical"},
+        )
+        self.assertEqual(terminate_resp.status_code, 200)
+        publish_logs_after_close = self.client.get("/mock/collaboration/dds/publish-logs").json()["data"]["items"]
+        optical_publish_logs_after_close = [
+            item for item in publish_logs_after_close if item.get("topic") == ELECTRO_OPTICAL_LINKAGE_CMD_TOPIC
+        ]
+        close_raw = bytes.fromhex(optical_publish_logs_after_close[-1]["raw_hex"])
+        self.assertEqual(len(close_raw), 84)
+        close_decoded = decode_topic_payload(ELECTRO_OPTICAL_LINKAGE_CMD_TOPIC, close_raw)
+        self.assertEqual(close_decoded["task_status"], 2)
+        self.assertEqual(close_decoded["target_batch_no"], 301)
 
     def test_arrival_without_enable_optical_does_not_open_optical(self):
         self.assertEqual(self._post_ownship().status_code, 200)

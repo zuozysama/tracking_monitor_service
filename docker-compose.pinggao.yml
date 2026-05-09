@@ -21,7 +21,7 @@ services:
       DDS_TOPIC_PREPLAN_RESULT: "cc_cm_tracking_monitor_service.v1.preplan_result_topic"
       DDS_TOPIC_MANUAL_SELECTION_REQUEST: "cc_cm_tracking_monitor_service.v1.manual_selection_request_topic"
       DDS_TOPIC_MANUAL_SWITCH_REQUEST: "cc_cm_tracking_monitor_service.v1.manual_switch_request_topic"
-      DDS_TOPIC_ELECTRO_OPTICAL_LINKAGE_CMD: "cc_cm_tracking_monitor_service.v1.electro_optical_linkage_cmd_topic"
+      DDS_TOPIC_ELECTRO_OPTICAL_LINKAGE_CMD: "cc_lm_base_load_manager.v1.photoelectric_require"
       DDS_TOPIC_STREAM_MEDIA_PARAM: "cc_cm_tracking_monitor_service.v1.stream_media_param_topic"
       DDS_TOPIC_OWNSHIP_NAVIGATION: "cc_cm_tracking_monitor_service.v1.ownship_navigation_topic"
       DDS_TOPIC_TARGET_PERCEPTION: "cc_cm_tracking_monitor_service.v1.target_perception_topic"

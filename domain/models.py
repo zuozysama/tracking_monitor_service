@@ -429,11 +429,11 @@ class OptronicStatus(CompatModel):
 
 class OpticalLinkageCommand(CompatModel):
     task_type: int = 0
-    task_no: int = 1
+    task_no: int = 0
+    dispatch_request_source: int = 0
     task_status: int
     dispatch_task_type: int = 1
     target_batch_no: int
-    reserved_ext: str = "0000000000000000"
 
 
 class SonarMatchStatus(CompatModel):
