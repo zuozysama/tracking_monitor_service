@@ -392,6 +392,7 @@ class TrackingService:
             current_target_id=task.current_target_id,
             current_target_batch_no=task.current_target_batch_no,
             apply_default_surface_filter=True,
+            keep_current_target_outside_task_area=True,
         )
 
         task.candidate_targets = debug_candidates
@@ -413,6 +414,7 @@ class TrackingService:
                 current_target_id=task.current_target_id,
                 current_target_batch_no=task.current_target_batch_no,
                 apply_default_surface_filter=True,
+                keep_current_target_outside_task_area=True,
             )
             task.candidate_targets = relaxed_debug_candidates
 

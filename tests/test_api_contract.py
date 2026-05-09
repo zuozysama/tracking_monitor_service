@@ -1,5 +1,5 @@
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import time
 
 from fastapi.testclient import TestClient
@@ -678,6 +678,134 @@ class ApiContractTestCase(unittest.TestCase):
         self.assertEqual(resp.json()["code"], 200)
         self.assertEqual(resp.json()["data"]["task_id"], task_id)
 
+    def test_fixed_tracking_tracks_targets_in_anchor_radius_and_times_out_out_of_region(self):
+        self.assertEqual(self._post_ownship().status_code, 200)
+        task_id = "task-fixed-target-radius-001"
+        create_resp = self.client.post(
+            "/api/v1/tasks",
+            json={
+                "task_id": task_id,
+                "task_type": "fixed_tracking",
+                "task_area": {
+                    "area_type": "point",
+                    "points": [
+                        {"longitude": 121.50, "latitude": 31.22},
+                    ],
+                },
+                "end_condition": {
+                    "duration_sec": 300,
+                    "out_of_region_finish": True,
+                    "target_lost_timeout_sec": 1,
+                },
+            },
+        )
+        self.assertEqual(create_resp.status_code, 200)
+        result_without_target = self.client.get(f"/api/v1/{task_id}/result").json()["data"]
+        self.assertEqual(result_without_target["task_status"], "running")
+        self.assertIsNone(result_without_target["current_target_id"])
+        self.assertIsNone(result_without_target["finish_reason"])
+
+        self.assertEqual(
+            self._post_targets(
+                [
+                    self._target(
+                        "target-fixed-001",
+                        501,
+                        121.501,
+                        31.221,
+                        threat_level=4,
+                        target_position_attr=3,
+                    )
+                ]
+            ).status_code,
+            200,
+        )
+        task_service.tick_task(task_id)
+        result_with_target = self.client.get(f"/api/v1/{task_id}/result").json()["data"]
+        self.assertEqual(result_with_target["task_status"], "running")
+        self.assertEqual(result_with_target["current_target_id"], "target-fixed-001")
+        self.assertIsNotNone(result_with_target["tracking_plan_output"])
+        self.assertIsNotNone(result_with_target["recommended_point"])
+
+        self.assertEqual(
+            self._post_targets(
+                [
+                    self._target(
+                        "target-fixed-001",
+                        501,
+                        121.70,
+                        31.22,
+                        threat_level=4,
+                        target_position_attr=3,
+                    )
+                ]
+            ).status_code,
+            200,
+        )
+        task_service.tick_task(task_id)
+        result_before_timeout = self.client.get(f"/api/v1/{task_id}/result").json()["data"]
+        self.assertEqual(result_before_timeout["task_status"], "running")
+        self.assertEqual(result_before_timeout["current_target_id"], "target-fixed-001")
+        self.assertIsNone(result_before_timeout["finish_reason"])
+
+        task = task_store.get_task(task_id)
+        task.last_seen_target_time = datetime.now(timezone.utc) - timedelta(seconds=2)
+        task_store.update_task(task)
+        task_service.tick_task(task_id)
+        result_after_timeout = self.client.get(f"/api/v1/{task_id}/result").json()["data"]
+        self.assertEqual(result_after_timeout["task_status"], "completed")
+        self.assertEqual(result_after_timeout["finish_reason"], "out_of_region")
+
+    def test_fixed_tracking_switches_to_new_target_before_out_of_region_timeout(self):
+        self.assertEqual(self._post_ownship().status_code, 200)
+        task_id = "task-fixed-target-switch-001"
+        create_resp = self.client.post(
+            "/api/v1/tasks",
+            json={
+                "task_id": task_id,
+                "task_type": "fixed_tracking",
+                "task_area": {
+                    "area_type": "point",
+                    "points": [
+                        {"longitude": 121.50, "latitude": 31.22},
+                    ],
+                },
+                "end_condition": {
+                    "duration_sec": 300,
+                    "out_of_region_finish": True,
+                    "target_lost_timeout_sec": 30,
+                },
+            },
+        )
+        self.assertEqual(create_resp.status_code, 200)
+
+        self.assertEqual(
+            self._post_targets(
+                [
+                    self._target("target-fixed-old", 511, 121.501, 31.221, threat_level=4, target_position_attr=3),
+                ]
+            ).status_code,
+            200,
+        )
+        task_service.tick_task(task_id)
+        self.assertEqual(self.client.get(f"/api/v1/{task_id}/result").json()["data"]["current_target_id"], "target-fixed-old")
+
+        self.assertEqual(
+            self._post_targets(
+                [
+                    self._target("target-fixed-old", 511, 121.70, 31.22, threat_level=4, target_position_attr=3),
+                    self._target("target-fixed-new", 512, 121.502, 31.221, threat_level=5, target_position_attr=3),
+                ]
+            ).status_code,
+            200,
+        )
+        task_service.tick_task(task_id)
+
+        result_after_switch = self.client.get(f"/api/v1/{task_id}/result").json()["data"]
+        self.assertEqual(result_after_switch["task_status"], "running")
+        self.assertEqual(result_after_switch["current_target_id"], "target-fixed-new")
+        self.assertIsNone(result_after_switch["finish_reason"])
+
     def test_create_fixed_tracking_task_with_non_point_area_should_fail(self):
         resp = self.client.post(
             "/api/v1/tasks",
@@ -878,6 +1006,88 @@ class ApiContractTestCase(unittest.TestCase):
         req_items = self.client.get("/mock/collaboration/manual-selection/requests").json()["data"]["items"]
         task_items = [x for x in req_items if x.get("task_id") == task_id]
         self.assertEqual(task_items, [])
+
+    def test_tracking_keeps_current_target_after_target_leaves_task_area_until_ownship_leaves(self):
+        self.assertEqual(self._post_ownship().status_code, 200)
+        self.assertEqual(
+            self._post_targets(
+                [
+                    self._target(
+                        "target-outside-keep-001",
+                        401,
+                        121.5220,
+                        31.2210,
+                        threat_level=4,
+                        target_position_attr=3,
+                    )
+                ]
+            ).status_code,
+            200,
+        )
+
+        task_id = "task-keep-target-outside-area-001"
+        task_area = {
+            "area_type": "polygon",
+            "points": [
+                {"longitude": 121.48, "latitude": 31.20},
+                {"longitude": 121.56, "latitude": 31.20},
+                {"longitude": 121.56, "latitude": 31.26},
+                {"longitude": 121.48, "latitude": 31.26},
+            ],
+        }
+        create_resp = self.client.post(
+            "/api/v1/tasks",
+            json={
+                "task_id": task_id,
+                "task_type": "escort",
+                "task_area": task_area,
+                "end_condition": {"duration_sec": 120, "out_of_region_finish": True},
+            },
+        )
+        self.assertEqual(create_resp.status_code, 200)
+        result_after_create = self.client.get(f"/api/v1/{task_id}/result").json()["data"]
+        self.assertEqual(result_after_create["current_target_id"], "target-outside-keep-001")
+
+        self.assertEqual(
+            self._post_targets(
+                [
+                    self._target(
+                        "target-outside-keep-001",
+                        401,
+                        121.5650,
+                        31.2210,
+                        threat_level=4,
+                        target_position_attr=3,
+                    )
+                ]
+            ).status_code,
+            200,
+        )
+        task_service.tick_task(task_id)
+
+        result_after_target_leaves = self.client.get(f"/api/v1/{task_id}/result").json()["data"]
+        self.assertEqual(result_after_target_leaves["task_status"], "running")
+        self.assertEqual(result_after_target_leaves["current_target_id"], "target-outside-keep-001")
+        self.assertIsNotNone(result_after_target_leaves["recommended_point"])
+        self.assertIsNone(result_after_target_leaves["finish_reason"])
+
+        nav_resp = self.client.post(
+            "/mock/dds/navigation",
+            json={
+                "platform_id": 1001,
+                "speed_mps": 6.2,
+                "heading_deg": 90.0,
+                "longitude": 121.5650,
+                "latitude": 31.2210,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        self.assertEqual(nav_resp.status_code, 200)
+        task_service.tick_task(task_id)
+
+        result_after_ownship_leaves = self.client.get(f"/api/v1/{task_id}/result").json()["data"]
+        self.assertEqual(result_after_ownship_leaves["task_status"], "completed")
+        self.assertEqual(result_after_ownship_leaves["finish_reason"], "out_of_region")
 
     def test_arrival_with_enable_optical_opens_optical(self):
         self.assertEqual(self._post_ownship().status_code, 200)
