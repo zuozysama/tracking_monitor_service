@@ -27,6 +27,11 @@ NAV_BUSINESS_FMT = ">HhhHhhiihhhhhhHHHHIHHHiiiBHI"
 NAV_BUSINESS_LEN = struct.calcsize(NAV_BUSINESS_FMT)
 COMMON_HEADER_FMT = ">IBHBIBQ"
 COMMON_HEADER_LEN = struct.calcsize(COMMON_HEADER_FMT)
+PHOTOELECTRIC_HEADER_FMT = ">IBHBIBII"
+PHOTOELECTRIC_HEADER_LEN = struct.calcsize(PHOTOELECTRIC_HEADER_FMT)
+PHOTOELECTRIC_REQUIRE_BUSINESS_FMT = ">HHBBBBHHHHHiiiiiiiiBI8s"
+PHOTOELECTRIC_REQUIRE_BUSINESS_LEN = struct.calcsize(PHOTOELECTRIC_REQUIRE_BUSINESS_FMT)
+PHOTOELECTRIC_REQUIRE_TOTAL_LEN = PHOTOELECTRIC_HEADER_LEN + PHOTOELECTRIC_REQUIRE_BUSINESS_LEN
 TASK_UPDATE_BUSINESS_FMT = ">64sBBBBBIIHHHB16s"
 TASK_UPDATE_BUSINESS_LEN = struct.calcsize(TASK_UPDATE_BUSINESS_FMT)
 STREAM_MEDIA_BUSINESS_FMT = ">64sBBBB32sB64s128s8sIIIIHHHBB256s256s32s"
@@ -698,15 +703,50 @@ def encode_topic_payload(topic: str, payload: dict) -> bytes:
         return common_header + business_header + bytes(body)
 
     if topic == ELECTRO_OPTICAL_LINKAGE_CMD_TOPIC:
-        return struct.pack(
-            ">HIBBI16s",
-            _u16(payload.get("task_type", 0)),
-            _u32(payload.get("task_no", 1)),
-            _u16(payload.get("task_status", 0)) & 0xFF,
-            _u16(payload.get("dispatch_task_type", 1)) & 0xFF,
-            _u32(payload.get("target_batch_no", 0)),
-            _fit_ascii(str(payload.get("reserved_ext") or ""), 16),
+        protocol_type = _u32(payload.get("protocol_type", 0))
+        version = _u8(payload.get("protocol_version", payload.get("version", 1)))
+        msg_type = _u8(payload.get("msg_type", 1))
+        seq = _u32(payload.get("msg_seq", payload.get("seq", 1)))
+        reserve = _u8(payload.get("reserve", 0))
+        ts_sec_raw, ts_millisecond_raw = _nav_timestamp_parts(payload)
+
+        header = struct.pack(
+            PHOTOELECTRIC_HEADER_FMT,
+            protocol_type,
+            version,
+            PHOTOELECTRIC_REQUIRE_TOTAL_LEN,
+            msg_type,
+            seq,
+            reserve,
+            ts_sec_raw,
+            ts_millisecond_raw,
         )
+        business = struct.pack(
+            PHOTOELECTRIC_REQUIRE_BUSINESS_FMT,
+            _u16(payload.get("task_type", 0)),
+            _u16(payload.get("task_no", 0)),
+            _u8(payload.get("dispatch_request_source", 0)),
+            _u8(payload.get("task_status", 0)),
+            _u8(payload.get("dispatch_task_type", 1)),
+            _u8(payload.get("guidance_region_type", 0)),
+            _u16(payload.get("fan_start_angle_deg", 0)),
+            _u16(payload.get("fan_end_angle_deg", 0)),
+            _u16(payload.get("fan_inner_radius_m", 0)),
+            _u16(payload.get("fan_outer_radius_m", 0)),
+            _u16(payload.get("reserved19", 0)),
+            _i32(payload.get("rectangle_point1_longitude_raw", 0)),
+            _i32(payload.get("rectangle_point1_latitude_raw", 0)),
+            _i32(payload.get("rectangle_point2_longitude_raw", 0)),
+            _i32(payload.get("rectangle_point2_latitude_raw", 0)),
+            _i32(payload.get("rectangle_point3_longitude_raw", 0)),
+            _i32(payload.get("rectangle_point3_latitude_raw", 0)),
+            _i32(payload.get("rectangle_point4_longitude_raw", 0)),
+            _i32(payload.get("rectangle_point4_latitude_raw", 0)),
+            _u8(payload.get("reserved28", 0)),
+            _u32(payload.get("target_batch_no", 0)),
+            b"\x00" * 8,
+        )
+        return header + business
 
     if topic == STREAM_MEDIA_PARAM_TOPIC:
         protocol_type = _u32(payload.get("protocol_type", 0))
@@ -1177,6 +1217,94 @@ def decode_topic_payload(topic: str, body: bytes) -> dict:
             )
 
         return result
+
+    if topic == ELECTRO_OPTICAL_LINKAGE_CMD_TOPIC:
+        if len(body) < PHOTOELECTRIC_REQUIRE_TOTAL_LEN:
+            return {
+                "raw_hex": body.hex(),
+                "decode_error": (
+                    f"photoelectric_require payload too short: got {len(body)} bytes, "
+                    f"need at least {PHOTOELECTRIC_REQUIRE_TOTAL_LEN}"
+                ),
+            }
+
+        (
+            protocol_type,
+            version,
+            packet_len,
+            msg_type,
+            seq,
+            reserve,
+            timestamp_sec,
+            timestamp_millisecond_raw,
+        ) = struct.unpack(PHOTOELECTRIC_HEADER_FMT, body[:PHOTOELECTRIC_HEADER_LEN])
+        payload = body[PHOTOELECTRIC_HEADER_LEN:PHOTOELECTRIC_REQUIRE_TOTAL_LEN]
+        (
+            task_type,
+            task_no,
+            dispatch_request_source,
+            task_status,
+            dispatch_task_type,
+            guidance_region_type,
+            fan_start_angle_deg,
+            fan_end_angle_deg,
+            fan_inner_radius_m,
+            fan_outer_radius_m,
+            reserved19,
+            rectangle_point1_longitude_raw,
+            rectangle_point1_latitude_raw,
+            rectangle_point2_longitude_raw,
+            rectangle_point2_latitude_raw,
+            rectangle_point3_longitude_raw,
+            rectangle_point3_latitude_raw,
+            rectangle_point4_longitude_raw,
+            rectangle_point4_latitude_raw,
+            reserved28,
+            target_batch_no,
+            reserved30_raw,
+        ) = struct.unpack(PHOTOELECTRIC_REQUIRE_BUSINESS_FMT, payload)
+
+        timestamp_millisecond_raw = max(0, min(int(timestamp_millisecond_raw), NAV_TIMESTAMP_MS_RAW_MAX))
+        return {
+            "protocol_type": int(protocol_type),
+            "protocol_version": int(version),
+            "packet_length": int(packet_len),
+            "msg_type": int(msg_type),
+            "msg_seq": int(seq),
+            "reserve": int(reserve),
+            "timestamp_sec": int(timestamp_sec),
+            "timestamp_millisecond_raw": int(timestamp_millisecond_raw),
+            "timestamp_millisecond": float(timestamp_millisecond_raw) / 1_000_000.0,
+            "timestamp": _nav_timestamp_iso(timestamp_sec, timestamp_millisecond_raw) or _iso_utc_now(),
+            "task_type": int(task_type),
+            "task_no": int(task_no),
+            "dispatch_request_source": int(dispatch_request_source),
+            "task_status": int(task_status),
+            "dispatch_task_type": int(dispatch_task_type),
+            "guidance_region_type": int(guidance_region_type),
+            "fan_start_angle_deg": int(fan_start_angle_deg),
+            "fan_end_angle_deg": int(fan_end_angle_deg),
+            "fan_inner_radius_m": int(fan_inner_radius_m),
+            "fan_outer_radius_m": int(fan_outer_radius_m),
+            "reserved19": int(reserved19),
+            "rectangle_point1_longitude_raw": int(rectangle_point1_longitude_raw),
+            "rectangle_point1_latitude_raw": int(rectangle_point1_latitude_raw),
+            "rectangle_point2_longitude_raw": int(rectangle_point2_longitude_raw),
+            "rectangle_point2_latitude_raw": int(rectangle_point2_latitude_raw),
+            "rectangle_point3_longitude_raw": int(rectangle_point3_longitude_raw),
+            "rectangle_point3_latitude_raw": int(rectangle_point3_latitude_raw),
+            "rectangle_point4_longitude_raw": int(rectangle_point4_longitude_raw),
+            "rectangle_point4_latitude_raw": int(rectangle_point4_latitude_raw),
+            "reserved28": int(reserved28),
+            "target_batch_no": int(target_batch_no),
+            "reserved30_hex": reserved30_raw.hex(" "),
+            "raw_hex": body[:PHOTOELECTRIC_REQUIRE_TOTAL_LEN].hex(),
+            "raw_len": PHOTOELECTRIC_REQUIRE_TOTAL_LEN,
+            "expected_raw_len": PHOTOELECTRIC_REQUIRE_TOTAL_LEN,
+            "business_raw_len": PHOTOELECTRIC_REQUIRE_BUSINESS_LEN,
+            "decode_format": "photoelectric_require_21_plus_63_fields",
+            "input_layout": "doc84",
+        }
 
     if topic == STREAM_MEDIA_PARAM_TOPIC:
         common_offset, common_ts = _parse_common_header(body)

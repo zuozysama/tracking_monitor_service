@@ -9,7 +9,7 @@ class FixedTrackingOutputService:
         if task.status not in {TaskStatus.RUNNING, TaskStatus.WAITING_TARGET}:
             return
 
-        if task.recommended_point is None:
+        if task.anchor_point is None:
             task.fixed_tracking_output = None
             task.update_time = utc_now()
             task_store.update_task(task)
@@ -17,8 +17,8 @@ class FixedTrackingOutputService:
 
         task.fixed_tracking_output = FixedTrackingOutput(
             task_id=task.task_id,
-            anchor_longitude=task.recommended_point.longitude,
-            anchor_latitude=task.recommended_point.latitude,
+            anchor_longitude=task.anchor_point.longitude,
+            anchor_latitude=task.anchor_point.latitude,
             expected_speed=task.expected_speed,
             update_time=utc_now(),
         )
