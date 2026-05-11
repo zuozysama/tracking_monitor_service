@@ -31,8 +31,8 @@ from algorithms.track_point_generator import (
 class TrackingService:
     EXPEL_SIDE_AMBIGUOUS_DEG = 5.0
     INTERCEPT_SIDE_AMBIGUOUS_DEG = 5.0
-    POINT_SWITCH_SCORE_MARGIN = 0.15
-    POINT_SWITCH_CONFIRM_CYCLES = 5
+    POINT_SWITCH_SCORE_MARGIN = 0.25
+    POINT_SWITCH_CONFIRM_CYCLES = 10
 
     def _resolve_tracking_mode(self, task: TaskContext) -> Optional[TrackingMode]:
         if task.task_type == TaskType.ESCORT:

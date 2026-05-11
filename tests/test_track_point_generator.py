@@ -3,7 +3,11 @@ from types import SimpleNamespace
 
 from domain.enums import TrackingMode
 from domain.models import GeoPoint, OwnShipState, RecommendedPoint, TargetState, TaskArea
-from algorithms.track_point_generator import bearing_between_points_deg, generate_simple_tracking_point
+from algorithms.track_point_generator import (
+    bearing_between_points_deg,
+    generate_simple_tracking_point,
+    generate_tracking_candidate_points,
+)
 from services.tracking_service import TrackingService
 from utils.time_utils import utc_now
 
@@ -265,7 +269,22 @@ class TrackPointGeneratorTestCase(unittest.TestCase):
 
         self.assertEqual(task.expel_side, "right")
 
-    def test_tracking_point_switch_requires_five_confirmed_better_cycles(self):
+    def test_escort_candidates_use_equal_rear_sector_weights(self):
+        candidates = generate_tracking_candidate_points(
+            mode=TrackingMode.ESCORT,
+            target=_target(heading_deg=0.0),
+            ownship=None,
+            escort_distance_m=800.0,
+            intercept_distance_m=500.0,
+            expel_distance_m=200.0,
+        )
+
+        weights_by_sector = {candidate["sector"]: candidate["sector_weight"] for candidate in candidates}
+        self.assertAlmostEqual(weights_by_sector["rear"], 1.0 / 3.0, places=6)
+        self.assertAlmostEqual(weights_by_sector["left_rear"], 1.0 / 3.0, places=6)
+        self.assertAlmostEqual(weights_by_sector["right_rear"], 1.0 / 3.0, places=6)
+
+    def test_tracking_point_switch_requires_ten_confirmed_better_cycles(self):
         service = TrackingService()
         task = SimpleNamespace(
             tracking_point_sector="rear",
@@ -273,11 +292,11 @@ class TrackPointGeneratorTestCase(unittest.TestCase):
             tracking_point_switch_confirm_cycles=0,
         )
         candidates = [
-            {"sector": "left_rear", "point_score": 1.20},
+            {"sector": "left_rear", "point_score": 1.30},
             {"sector": "rear", "point_score": 1.00},
         ]
 
-        for expected_count in range(1, 5):
+        for expected_count in range(1, 10):
             selected = service._select_tracking_candidate(task, candidates)
             self.assertEqual(selected["sector"], "rear")
             self.assertEqual(task.tracking_point_sector, "rear")
@@ -298,7 +317,7 @@ class TrackPointGeneratorTestCase(unittest.TestCase):
             tracking_point_switch_confirm_cycles=3,
         )
         candidates = [
-            {"sector": "left_rear", "point_score": 1.10},
+            {"sector": "left_rear", "point_score": 1.20},
             {"sector": "rear", "point_score": 1.00},
         ]
 
