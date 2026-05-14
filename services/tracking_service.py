@@ -43,6 +43,13 @@ class TrackingService:
             return TrackingMode.EXPEL
         return None
 
+    @staticmethod
+    def _has_designated_target_batch_no(task: TaskContext) -> bool:
+        if task.target_constraint is None:
+            return False
+        batch_no = task.target_constraint.target_batch_no
+        return batch_no is not None and batch_no >= 0
+
     def _reset_intercept_state(self, task: TaskContext) -> None:
         task.intercept_stage = 0
         task.intercept_side = None
@@ -364,7 +371,9 @@ class TrackingService:
             task_store.update_task(task)
             return
 
-        patrol_service.refresh_result(task)
+        has_designated_target_batch_no = self._has_designated_target_batch_no(task)
+        if not has_designated_target_batch_no:
+            patrol_service.refresh_result(task)
 
         ownship = situation_store.get_ownship()
         if ownship is None:
@@ -372,6 +381,8 @@ class TrackingService:
             task.search_hit = False
             task.execution_phase = "patrolling"
             task.recommended_point = None
+            if has_designated_target_batch_no:
+                task.patrol_plan_output = None
             task.tracking_plan_output = None
             self._reset_intercept_state(task)
             self._reset_expel_state(task)
@@ -423,14 +434,19 @@ class TrackingService:
             task.search_hit = False
             task.execution_phase = "patrolling"
             task.recommended_point = None
+            if has_designated_target_batch_no:
+                task.patrol_plan_output = None
             task.tracking_plan_output = None
             self._reset_intercept_state(task)
             self._reset_expel_state(task)
             task.update_time = utc_now()
             task_store.update_task(task)
-            # waiting_target means patrol mode before lock-on;
-            # report patrol plan/stage and dispatch patrol waypoints accordingly.
-            collaboration_service.handle_patrol_collaboration(task)
+            if has_designated_target_batch_no:
+                collaboration_service.report_stage_if_changed(task)
+            else:
+                # waiting_target means patrol mode before lock-on;
+                # report patrol plan/stage and dispatch patrol waypoints accordingly.
+                collaboration_service.handle_patrol_collaboration(task)
             return
 
         previous_target_batch_no = task.current_target_batch_no

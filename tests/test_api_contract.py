@@ -1436,6 +1436,111 @@ class ApiContractTestCase(unittest.TestCase):
         candidate_ids = [item.get("target_id") for item in candidates[:5]]
         self.assertEqual(candidate_ids, ["target-031", "target-032", "target-033", "target-034", "target-035"])
 
+    def test_designated_batch_tracking_does_not_require_area_or_dispatch_patrol(self):
+        self.assertEqual(self._post_ownship().status_code, 200)
+        self.assertEqual(
+            self._post_targets(
+                [
+                    self._target("target-777", 777, 121.5050, 31.2210, threat_level=4, target_position_attr=3),
+                    self._target("target-778", 778, 121.5060, 31.2215, threat_level=5, target_position_attr=3),
+                ]
+            ).status_code,
+            200,
+        )
+
+        task_id = "task-designated-batch-no-area-001"
+        create_resp = self.client.post(
+            "/api/v1/tasks",
+            json={
+                "task_id": task_id,
+                "task_type": "escort",
+                "target_info": {"target_batch_no": 777},
+                "end_condition": {"duration_sec": 120},
+            },
+        )
+        self.assertEqual(create_resp.status_code, 200)
+
+        output_resp = self.client.get(f"/api/v1/{task_id}/output")
+        self.assertEqual(output_resp.status_code, 200)
+        output_data = output_resp.json()["data"]
+        self.assertEqual(output_data["output_type"], "tracking")
+        self.assertIsNone(output_data["patrol_plan_output"])
+        self.assertEqual(output_data["tracking_plan_output"]["target_batch_no"], 777)
+
+        patrol_logs = self.client.get("/mock/autonomy/patrol/logs").json()["data"]["items"]
+        tracking_logs = self.client.get("/mock/autonomy/tracking/logs").json()["data"]["items"]
+        self.assertFalse([item for item in patrol_logs if item.get("task_id") == task_id])
+        task_tracking_logs = [item for item in tracking_logs if item.get("task_id") == task_id]
+        self.assertTrue(task_tracking_logs)
+        self.assertEqual(task_tracking_logs[-1]["params"]["target_batch_no"], 777)
+
+    def test_designated_batch_tracking_waits_without_patrol_when_target_absent(self):
+        self.assertEqual(self._post_ownship().status_code, 200)
+
+        task_id = "task-designated-batch-wait-001"
+        create_resp = self.client.post(
+            "/api/v1/tasks",
+            json={
+                "task_id": task_id,
+                "task_type": "intercept",
+                "target_info": {"target_batch_no": 888},
+                "end_condition": {"duration_sec": 120},
+            },
+        )
+        self.assertEqual(create_resp.status_code, 200)
+
+        status_resp = self.client.get(f"/api/v1/{task_id}/status")
+        self.assertEqual(status_resp.status_code, 200)
+        status_data = status_resp.json()["data"]
+        self.assertEqual(status_data["task_status"], "running")
+        self.assertEqual(status_data["execution_phase"], "patrolling")
+
+        output_resp = self.client.get(f"/api/v1/{task_id}/output")
+        self.assertEqual(output_resp.status_code, 200)
+        output_data = output_resp.json()["data"]
+        self.assertEqual(output_data["output_type"], "none")
+        self.assertIsNone(output_data["patrol_plan_output"])
+        self.assertIsNone(output_data["tracking_plan_output"])
+
+        patrol_logs = self.client.get("/mock/autonomy/patrol/logs").json()["data"]["items"]
+        self.assertFalse([item for item in patrol_logs if item.get("task_id") == task_id])
+
+    def test_patrol_with_designated_batch_still_requires_area(self):
+        resp = self.client.post(
+            "/api/v1/tasks",
+            json={
+                "task_id": "task-patrol-batch-no-area-invalid-001",
+                "task_type": "patrol",
+                "target_info": {"target_batch_no": 999},
+                "end_condition": {"duration_sec": 120},
+            },
+        )
+        self.assertEqual(resp.status_code, 422)
+
+    def test_zero_batch_no_can_bypass_tracking_area_requirement(self):
+        resp = self.client.post(
+            "/api/v1/tasks",
+            json={
+                "task_id": "task-batch-0-no-area-valid",
+                "task_type": "escort",
+                "target_info": {"target_batch_no": 0},
+                "end_condition": {"duration_sec": 120},
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+
+    def test_negative_batch_no_does_not_bypass_tracking_area_requirement(self):
+        resp = self.client.post(
+            "/api/v1/tasks",
+            json={
+                "task_id": "task-batch-negative-no-area-invalid",
+                "task_type": "escort",
+                "target_info": {"target_batch_no": -1},
+                "end_condition": {"duration_sec": 120},
+            },
+        )
+        self.assertEqual(resp.status_code, 422)
+
     def test_patrol_dispatch_to_autonomy_uses_task_status_1(self):
         self.assertEqual(self._post_ownship().status_code, 200)
         task_id = "task-autonomy-patrol-status-001"
