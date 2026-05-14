@@ -110,7 +110,7 @@ def _default_mode_sector_weights(
             return ["right", "left"], {"right": 1.0, "left": 0.6}, 1.0
         return ["left", "right"], {"left": 1.0, "right": 0.6}, 1.0
 
-    return ["rear", "left_rear", "right_rear"], {"rear": 1.0, "left_rear": 0.75, "right_rear": 0.75}, 1.0
+    return ["rear", "left_rear", "right_rear"], {"rear": 1.0, "left_rear": 1.0, "right_rear": 1.0}, 1.0
 
 
 def generate_tracking_candidate_points(
@@ -122,8 +122,8 @@ def generate_tracking_candidate_points(
     expel_distance_m: float,
     alpha_sector: float = 1.0,
     beta_maneuver: float = 1.0,
-    w_dist: float = 0.7,
-    w_turn: float = 0.3,
+    w_dist: float = 0.8,
+    w_turn: float = 0.2,
     intercept_stage: int = 0,
     intercept_side: Optional[str] = None,
     expel_stage: int = 0,

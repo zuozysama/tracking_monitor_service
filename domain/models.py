@@ -138,8 +138,10 @@ class CreateTaskRequest(CompatModel):
         if self.task_type == TaskType.PATROL and self.task_area is None:
             raise ValueError("task_area is required when task_type=patrol")
 
+        target_batch_no = self.target_info.target_batch_no if self.target_info is not None else None
+        has_designated_target_batch_no = target_batch_no is not None and target_batch_no >= 0
         if self.task_type in {TaskType.ESCORT, TaskType.INTERCEPT, TaskType.EXPEL}:
-            if self.task_area is None:
+            if self.task_area is None and not has_designated_target_batch_no:
                 raise ValueError("task_area is required when task_type=escort/intercept/expel")
 
         if self.task_type == TaskType.UNDERWATER_SEARCH and self.task_area is None:

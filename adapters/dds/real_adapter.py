@@ -35,6 +35,7 @@ class RealLjdssAdapter(DdsAdapter):
         self._sub_handlers: dict[str, list[Callable[[dict], None]]] = {}
         self._seq = 0
         self._qos_profile = cfg.qos_profile or "BestEffort"
+        self._topic_qos_profiles = dict(cfg.topic_qos_profiles or {})
         self._try_load_sdk()
 
     def _log(
@@ -327,8 +328,11 @@ class RealLjdssAdapter(DdsAdapter):
     def _ensure_pub_topic(self, topic: str) -> None:
         if topic in self._pub_topics:
             return
-        self._dds.pub_with_profile(topic, "Library", self._qos_profile, None)
+        self._dds.pub_with_profile(topic, "Library", self._qos_profile_for_topic(topic), None)
         self._pub_topics.add(topic)
+
+    def _qos_profile_for_topic(self, topic: str) -> str:
+        return self._topic_qos_profiles.get(topic, self._qos_profile)
 
     def publish(self, topic: str, payload: dict) -> None:
         if not self._ensure_started():
@@ -383,7 +387,7 @@ class RealLjdssAdapter(DdsAdapter):
             return
 
         try:
-            self._dds.sub_with_profile(topic, "Library", self._qos_profile, self._dr_listener)
+            self._dds.sub_with_profile(topic, "Library", self._qos_profile_for_topic(topic), self._dr_listener)
             self._sub_topics.add(topic)
         except Exception as exc:
             self._log(topic=topic, payload={}, adapter="real-subscribe-error", reason=str(exc))
