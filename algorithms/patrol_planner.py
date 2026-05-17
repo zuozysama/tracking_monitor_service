@@ -590,18 +590,16 @@ def _compute_entry_scan_offset(
 
 
 def _build_inside_start_variants(points: List[_LocalPoint]) -> List[List[_LocalPoint]]:
-    variants: List[List[_LocalPoint]] = []
     if not points:
-        return variants
+        return []
 
-    for idx in range(len(points)):
-        forward_first = points[idx:] + list(reversed(points[:idx]))
-        backward_first = list(reversed(points[: idx + 1])) + points[idx + 1 :]
-        if forward_first:
-            variants.append(forward_first)
-        if backward_first:
-            variants.append(backward_first)
-    return variants
+    # Coverage paths are open polylines. Cutting them from the middle can
+    # create non-adjacent jumps, so inside starts only choose either end.
+    forward = list(points)
+    backward = list(reversed(points))
+    if len(points) == 1:
+        return [forward]
+    return [forward, backward]
 
 
 def _generate_candidate_paths(

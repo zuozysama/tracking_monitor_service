@@ -6,6 +6,7 @@ from algorithms.patrol_planner import (
     _normalize_polygon_boundary,
     _polygon_has_self_intersection,
     _polygon_signed_area,
+    _project_from_local,
     _project_point_to_local,
     _project_to_local,
     generate_simple_patrol_waypoints,
@@ -334,21 +335,56 @@ class PatrolPlannerTestCase(unittest.TestCase):
         self.assertGreater(len(waypoints), 1)
         self.assertAlmostEqual(waypoints[0].longitude, ownship_inside.longitude, places=7)
         self.assertAlmostEqual(waypoints[0].latitude, ownship_inside.latitude, places=7)
-        self.assertLess(
-            _project_point_to_local(
-                GeoPoint(longitude=waypoints[1].longitude, latitude=waypoints[1].latitude),
-                ownship_inside.longitude,
-                ownship_inside.latitude,
-            ).x
-            ** 2
-            + _project_point_to_local(
-                GeoPoint(longitude=waypoints[1].longitude, latitude=waypoints[1].latitude),
-                ownship_inside.longitude,
-                ownship_inside.latitude,
-            ).y
-            ** 2,
-            500.0**2,
+        self.assertTrue(self._route_has_no_large_jump(polygon_points, waypoints))
+
+    def test_polygon_inside_ownship_keeps_lawnmower_path_continuous(self):
+        polygon_points = [
+            GeoPoint(longitude=123.16999865, latitude=38.284998463),
+            GeoPoint(longitude=123.19499865, latitude=38.284998463),
+            GeoPoint(longitude=123.194990034, latitude=38.30999846),
+            GeoPoint(longitude=123.169990034, latitude=38.30999846),
+        ]
+        task_area = TaskArea(area_type="polygon", points=polygon_points)
+        _, ref_lon, ref_lat = _project_to_local(polygon_points)
+        ownship_inside = _project_from_local(
+            _LocalPoint(x=-420.413, y=-1359.936),
+            ref_lon=ref_lon,
+            ref_lat=ref_lat,
         )
+
+        waypoints = generate_simple_patrol_waypoints(
+            task_area=task_area,
+            expected_speed=20.0,
+            num_passes=8,
+            scan_radius_m=500.0,
+            boundary_clearance_m=50.0,
+            ownship_point=ownship_inside,
+            ownship_heading_deg=0.0,
+        )
+
+        self.assertGreater(len(waypoints), 1)
+        self.assertAlmostEqual(waypoints[0].longitude, ownship_inside.longitude, places=7)
+        self.assertAlmostEqual(waypoints[0].latitude, ownship_inside.latitude, places=7)
+        self.assertTrue(self._route_has_no_large_jump(polygon_points, waypoints))
+
+    def _route_has_no_large_jump(self, polygon_points, waypoints):
+        _, ref_lon, ref_lat = _project_to_local(polygon_points)
+        local_points = [
+            _project_point_to_local(
+                GeoPoint(longitude=waypoint.longitude, latitude=waypoint.latitude),
+                ref_lon,
+                ref_lat,
+            )
+            for waypoint in waypoints
+        ]
+        distances = [
+            ((nxt.x - current.x) ** 2 + (nxt.y - current.y) ** 2) ** 0.5
+            for current, nxt in zip(local_points[1:], local_points[2:])
+        ]
+        if not distances:
+            return True
+        median = sorted(distances)[len(distances) // 2]
+        return all(distance <= median * 3.0 for distance in distances)
 
     def test_circle_prepends_boundary_intersection_as_start_waypoint(self):
         center = GeoPoint(longitude=121.5000, latitude=31.2200)
