@@ -17,6 +17,7 @@ class SettingsEnvOverridesTestCase(unittest.TestCase):
         self._orig_tracking_escort_distance = os.environ.get("TRACKING_ESCORT_DISTANCE_M")
         self._orig_tracking_intercept_distance = os.environ.get("TRACKING_INTERCEPT_DISTANCE_M")
         self._orig_tracking_expel_distance = os.environ.get("TRACKING_EXPEL_DISTANCE_M")
+        self._orig_fixed_tracking_region_radius = os.environ.get("FIXED_TRACKING_REGION_RADIUS_M")
         self._orig_patrol_num_passes = os.environ.get("PATROL_NUM_PASSES")
         self._orig_patrol_boundary_clearance = os.environ.get("PATROL_BOUNDARY_CLEARANCE_M")
 
@@ -37,6 +38,10 @@ class SettingsEnvOverridesTestCase(unittest.TestCase):
             os.environ.pop("TRACKING_EXPEL_DISTANCE_M", None)
         else:
             os.environ["TRACKING_EXPEL_DISTANCE_M"] = self._orig_tracking_expel_distance
+        if self._orig_fixed_tracking_region_radius is None:
+            os.environ.pop("FIXED_TRACKING_REGION_RADIUS_M", None)
+        else:
+            os.environ["FIXED_TRACKING_REGION_RADIUS_M"] = self._orig_fixed_tracking_region_radius
         if self._orig_patrol_num_passes is None:
             os.environ.pop("PATROL_NUM_PASSES", None)
         else:
@@ -69,6 +74,11 @@ class SettingsEnvOverridesTestCase(unittest.TestCase):
         self.assertEqual(get_tracking_escort_distance_m(), 610.0)
         self.assertEqual(get_tracking_intercept_distance_m(), 180.0)
         self.assertEqual(get_tracking_expel_distance_m(), 240.0)
+
+    def test_fixed_tracking_region_radius_can_be_overridden_by_env(self):
+        os.environ["FIXED_TRACKING_REGION_RADIUS_M"] = "1000"
+        settings = load_settings()
+        self.assertEqual(settings.fixed_tracking.default_region_radius_m, 1000.0)
 
 
 if __name__ == "__main__":

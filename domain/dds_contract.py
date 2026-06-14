@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Optional
 
 import yaml
 
@@ -12,7 +12,7 @@ DEFAULT_TOPIC_SUFFIXES = {
     "preplan_result_topic",
     "manual_selection_request_topic",
     "manual_switch_request_topic",
-    "electro_optical_linkage_cmd_topic",
+    "photoelectric_require",
     "stream_media_param_topic",
     "ownship_navigation_topic",
     "target_perception_topic",
@@ -51,13 +51,15 @@ _YAML_TOPICS_BY_SUFFIX = _load_yaml_topics_by_suffix()
 TOPIC_PREFIX = os.getenv("DDS_TOPIC_PREFIX", DEFAULT_TOPIC_PREFIX).strip() or DEFAULT_TOPIC_PREFIX
 
 
-def _resolve_topic(env_key: str, suffix: str) -> str:
+def _resolve_topic(env_key: str, suffix: str, fallback: Optional[str] = None) -> str:
     env_value = os.getenv(env_key, "").strip()
     if env_value:
         return env_value
     yaml_value = _YAML_TOPICS_BY_SUFFIX.get(suffix, "").strip()
     if yaml_value:
         return yaml_value
+    if fallback:
+        return fallback
     return TOPIC_PREFIX + suffix
 
 
@@ -66,7 +68,9 @@ PREPLAN_RESULT_TOPIC = _resolve_topic("DDS_TOPIC_PREPLAN_RESULT", "preplan_resul
 MANUAL_SELECTION_REQUEST_TOPIC = _resolve_topic("DDS_TOPIC_MANUAL_SELECTION_REQUEST", "manual_selection_request_topic")
 MANUAL_SWITCH_REQUEST_TOPIC = _resolve_topic("DDS_TOPIC_MANUAL_SWITCH_REQUEST", "manual_switch_request_topic")
 ELECTRO_OPTICAL_LINKAGE_CMD_TOPIC = _resolve_topic(
-    "DDS_TOPIC_ELECTRO_OPTICAL_LINKAGE_CMD", "electro_optical_linkage_cmd_topic"
+    "DDS_TOPIC_ELECTRO_OPTICAL_LINKAGE_CMD",
+    "photoelectric_require",
+    "cc_lm_base_load_manager.v1.photoelectric_require",
 )
 STREAM_MEDIA_PARAM_TOPIC = _resolve_topic("DDS_TOPIC_STREAM_MEDIA_PARAM", "stream_media_param_topic")
 OWNSHIP_NAVIGATION_TOPIC = _resolve_topic("DDS_TOPIC_OWNSHIP_NAVIGATION", "ownship_navigation_topic")

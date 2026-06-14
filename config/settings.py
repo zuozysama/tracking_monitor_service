@@ -215,6 +215,18 @@ def _apply_tracking_filter_env_overrides(merged: Dict[str, Any]) -> Dict[str, An
     return result
 
 
+def _apply_fixed_tracking_env_overrides(merged: Dict[str, Any]) -> Dict[str, Any]:
+    result = dict(merged)
+    fixed_tracking = dict(result.get("fixed_tracking") or {})
+
+    region_radius_m = _get_env_float("FIXED_TRACKING_REGION_RADIUS_M")
+    if region_radius_m is not None and region_radius_m > 0:
+        fixed_tracking["default_region_radius_m"] = region_radius_m
+
+    result["fixed_tracking"] = fixed_tracking
+    return result
+
+
 def _apply_external_service_env_overrides(merged: Dict[str, Any]) -> Dict[str, Any]:
     result = dict(merged)
     external_services = dict(result.get("external_services") or {})
@@ -253,6 +265,7 @@ def load_settings(config_file: str = "config/service_settings.yaml") -> ServiceC
     merged = _deep_merge(default_dict, yaml_dict)
     merged = _apply_tracking_env_overrides(merged)
     merged = _apply_tracking_filter_env_overrides(merged)
+    merged = _apply_fixed_tracking_env_overrides(merged)
     merged = _apply_external_service_env_overrides(merged)
     return ServiceConfig(**merged)
 

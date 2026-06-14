@@ -58,6 +58,18 @@ def _task_area_filter(target: TargetState, task_area: Optional[TaskArea]) -> boo
     return is_target_in_task_area(target=target, task_area=task_area)
 
 
+def _is_current_target(
+    target: TargetState,
+    current_target_id: Optional[str],
+    current_target_batch_no: Optional[int],
+) -> bool:
+    if current_target_batch_no is not None:
+        return target.target_batch_no == current_target_batch_no
+    if current_target_id:
+        return _target_id_matches(target.target_id, current_target_id)
+    return False
+
+
 def _has_explicit_identity_constraint(constraint: Optional[TargetConstraint]) -> bool:
     if constraint is None:
         return False
@@ -426,6 +438,7 @@ def filter_and_select_target(
     apply_default_surface_filter: bool = False,
     default_surface_position_attr: int = DEFAULT_SURFACE_TARGET_POSITION_ATTR,
     default_min_threat_level: Optional[int] = None,
+    keep_current_target_outside_task_area: bool = False,
 ) -> Tuple[Optional[TargetState], List[dict]]:
     # Keep signature for compatibility; ranking no longer relies on legacy weighted total_score.
     _ = identity_weights
@@ -446,7 +459,14 @@ def filter_and_select_target(
     for target in targets:
         if not target.active:
             continue
-        if not _task_area_filter(target=target, task_area=task_area):
+        is_current_target = _is_current_target(
+            target=target,
+            current_target_id=current_target_id,
+            current_target_batch_no=current_target_batch_no,
+        )
+        if not _task_area_filter(target=target, task_area=task_area) and not (
+            keep_current_target_outside_task_area and is_current_target
+        ):
             continue
         if default_surface_filter_active and not _default_surface_threat_filter(
             target=target,

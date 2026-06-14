@@ -105,6 +105,7 @@ def get_dds_debug_status():
                 "sdk_loaded": bool(getattr(adapter, "_sdk_loaded", False)),
                 "load_error": str(getattr(adapter, "_load_error", "")),
                 "qos_profile": str(getattr(adapter, "_qos_profile", "")),
+                "topic_qos_profiles": dict(getattr(adapter, "_topic_qos_profiles", {})),
                 "subscribed_topics": sorted(list(getattr(adapter, "_sub_topics", set()))),
                 "registered_handlers": sorted(list(getattr(adapter, "_sub_handlers", {}).keys())),
             },

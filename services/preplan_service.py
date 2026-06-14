@@ -56,6 +56,14 @@ class PreplanService:
             point_type="preplan_patrol_waypoints",
             point_count=len(waypoints),
         )
+        point_generated_time = utc_now()
+        print_point_generation_timing(
+            task=task,
+            point_generation_start_time=point_generation_start_time,
+            point_generated_time=point_generated_time,
+            point_type="preplan_patrol_waypoints",
+            point_count=len(waypoints),
+        )
 
         task.preplan_output = PreplanOutput(
             task_id=task.task_id,
