@@ -165,6 +165,7 @@ class TaskService:
             update_time=now,
             execution_phase="planning",
             confirmed_preplan_route=confirmed_preplan_route,
+            patrol_pattern=(req.task_area.patrol_pattern if req.task_area is not None and req.task_area.patrol_pattern else "lawnmower").lower(),
         )
 
         task.status = TaskStatus.RUNNING
@@ -358,6 +359,7 @@ class TaskService:
             task_type=task.task_type,
             task_name=task.task_name,
             task_status=self._normalize_contract_task_status(task.status),
+            patrol_pattern=task.patrol_pattern,
             start_time=task.start_time,
             update_time=task.update_time,
             remaining_time_sec=remaining_time_sec,

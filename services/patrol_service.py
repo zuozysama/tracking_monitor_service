@@ -8,6 +8,7 @@ from utils.config_utils import (
     get_patrol_num_passes,
     get_patrol_scan_radius_m,
 )
+from utils.point_timing_log import print_point_generation_timing
 from algorithms.patrol_planner import generate_simple_patrol_waypoints
 
 
@@ -22,8 +23,10 @@ class PatrolService:
             task_store.update_task(task)
             return
 
+        point_generation_start_time = utc_now()
         if task.confirmed_preplan_route:
             waypoints = [waypoint.model_copy(deep=True) for waypoint in task.confirmed_preplan_route]
+            point_type = "confirmed_preplan_patrol_waypoints"
         else:
             ownship = situation_store.get_ownship()
             ownship_point = None
@@ -41,7 +44,18 @@ class PatrolService:
                 ownship_heading_deg=ownship_heading_deg,
                 scan_radius_m=get_patrol_scan_radius_m(),
                 boundary_clearance_m=get_patrol_boundary_clearance_m(),
+                pattern=(task.patrol_pattern or "lawnmower").lower(),
             )
+            point_type = "patrol_waypoints"
+
+        point_generated_time = utc_now()
+        print_point_generation_timing(
+            task=task,
+            point_generation_start_time=point_generation_start_time,
+            point_generated_time=point_generated_time,
+            point_type=point_type,
+            point_count=len(waypoints),
+        )
 
         task.execution_phase = "patrolling"
         task.patrol_waypoints = waypoints
@@ -49,10 +63,10 @@ class PatrolService:
         task.patrol_plan_output = PatrolPlanOutput(
             task_id=task.task_id,
             waypoints=waypoints,
-            update_time=utc_now(),
+            update_time=point_generated_time,
         )
         task.tracking_plan_output = None
-        task.update_time = utc_now()
+        task.update_time = point_generated_time
         task_store.update_task(task)
 
 

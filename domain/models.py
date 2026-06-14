@@ -20,6 +20,8 @@ class TaskArea(CompatModel):
     points: Optional[List[GeoPoint]] = None
     center: Optional[GeoPoint] = None
     radius_m: Optional[float] = Field(default=None, gt=0.0)
+    # Optional patrol generation pattern for this area: "auto" | "concentric" | "lawnmower"
+    patrol_pattern: Optional[str] = None
 
     @model_validator(mode="after")
     def validate_points(self):
@@ -132,14 +134,17 @@ class CreateTaskRequest(CompatModel):
     end_condition: Optional[EndCondition] = None
     stream_media_param: Optional[StreamMediaParam] = None
     linkage_param: Optional[LinkageParam] = None
+    # Note: pattern moved into TaskArea.patrol_pattern to keep request compact
 
     @model_validator(mode="after")
     def validate_task_fields(self):
         if self.task_type == TaskType.PATROL and self.task_area is None:
             raise ValueError("task_area is required when task_type=patrol")
 
+        target_batch_no = self.target_info.target_batch_no if self.target_info is not None else None
+        has_designated_target_batch_no = target_batch_no is not None and target_batch_no >= 0
         if self.task_type in {TaskType.ESCORT, TaskType.INTERCEPT, TaskType.EXPEL}:
-            if self.task_area is None:
+            if self.task_area is None and not has_designated_target_batch_no:
                 raise ValueError("task_area is required when task_type=escort/intercept/expel")
 
         if self.task_type == TaskType.UNDERWATER_SEARCH and self.task_area is None:
@@ -429,11 +434,11 @@ class OptronicStatus(CompatModel):
 
 class OpticalLinkageCommand(CompatModel):
     task_type: int = 0
-    task_no: int = 1
+    task_no: int = 0
+    dispatch_request_source: int = 0
     task_status: int
     dispatch_task_type: int = 1
     target_batch_no: int
-    reserved_ext: str = "0000000000000000"
 
 
 class SonarMatchStatus(CompatModel):
@@ -510,6 +515,9 @@ class TaskContext(CompatModel):
     expel_stage: int = 0
     expel_side: Optional[str] = None
     expel_arrival_stable_cycles: int = 0
+    tracking_point_sector: Optional[str] = None
+    tracking_point_switch_candidate_sector: Optional[str] = None
+    tracking_point_switch_confirm_cycles: int = 0
     recommended_point: Optional[RecommendedPoint] = None
     last_seen_target_time: Optional[datetime] = None
     candidate_targets: Optional[List[Dict[str, Any]]] = None
@@ -563,6 +571,8 @@ class TaskContext(CompatModel):
     manual_switch_selected_target_id: Optional[str] = None
     manual_switch_candidate_count: int = 0
     manual_switch_last_countdown_sec: Optional[int] = None
+    # Optional pattern requested at task creation for patrol generation
+    patrol_pattern: Optional[str] = None
 
 
 class TaskStatusResponse(CompatModel):
@@ -570,6 +580,7 @@ class TaskStatusResponse(CompatModel):
     task_type: TaskType
     task_name: Optional[str] = None
     task_status: str
+    patrol_pattern: Optional[str] = None
     start_time: Optional[datetime] = None
     update_time: datetime
     remaining_time_sec: Optional[int] = None
