@@ -46,6 +46,15 @@ class PreplanService:
             ownship_heading_deg=ownship_heading_deg,
             scan_radius_m=get_patrol_scan_radius_m(),
             boundary_clearance_m=get_patrol_boundary_clearance_m(),
+            pattern=(task.patrol_pattern or "lawnmower").lower(),
+        )
+        point_generated_time = utc_now()
+        print_point_generation_timing(
+            task=task,
+            point_generation_start_time=point_generation_start_time,
+            point_generated_time=point_generated_time,
+            point_type="preplan_patrol_waypoints",
+            point_count=len(waypoints),
         )
         point_generated_time = utc_now()
         print_point_generation_timing(

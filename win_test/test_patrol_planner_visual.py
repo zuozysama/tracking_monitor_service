@@ -78,6 +78,7 @@ def main() -> None:
         scan_radius_m=PATROL_SCAN_RADIUS_M,
         boundary_clearance_m=PATROL_BOUNDARY_CLEARANCE_M,
         start_turn_penalty_m_per_deg=START_TURN_PENALTY_M_PER_DEG,
+        pattern="concentric",
     )
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

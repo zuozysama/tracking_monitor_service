@@ -44,6 +44,7 @@ class PatrolService:
                 ownship_heading_deg=ownship_heading_deg,
                 scan_radius_m=get_patrol_scan_radius_m(),
                 boundary_clearance_m=get_patrol_boundary_clearance_m(),
+                pattern=(task.patrol_pattern or "lawnmower").lower(),
             )
             point_type = "patrol_waypoints"
 

@@ -20,6 +20,8 @@ class TaskArea(CompatModel):
     points: Optional[List[GeoPoint]] = None
     center: Optional[GeoPoint] = None
     radius_m: Optional[float] = Field(default=None, gt=0.0)
+    # Optional patrol generation pattern for this area: "auto" | "concentric" | "lawnmower"
+    patrol_pattern: Optional[str] = None
 
     @model_validator(mode="after")
     def validate_points(self):
@@ -132,6 +134,7 @@ class CreateTaskRequest(CompatModel):
     end_condition: Optional[EndCondition] = None
     stream_media_param: Optional[StreamMediaParam] = None
     linkage_param: Optional[LinkageParam] = None
+    # Note: pattern moved into TaskArea.patrol_pattern to keep request compact
 
     @model_validator(mode="after")
     def validate_task_fields(self):
@@ -568,6 +571,8 @@ class TaskContext(CompatModel):
     manual_switch_selected_target_id: Optional[str] = None
     manual_switch_candidate_count: int = 0
     manual_switch_last_countdown_sec: Optional[int] = None
+    # Optional pattern requested at task creation for patrol generation
+    patrol_pattern: Optional[str] = None
 
 
 class TaskStatusResponse(CompatModel):
@@ -575,6 +580,7 @@ class TaskStatusResponse(CompatModel):
     task_type: TaskType
     task_name: Optional[str] = None
     task_status: str
+    patrol_pattern: Optional[str] = None
     start_time: Optional[datetime] = None
     update_time: datetime
     remaining_time_sec: Optional[int] = None
