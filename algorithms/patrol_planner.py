@@ -851,6 +851,19 @@ def _build_concentric_loops(
             centroid = ((sum(xs) / len(xs)), (sum(ys) / len(ys)))
             if not _point_in_polygon(centroid, [(p.x, p.y) for p in current]):
                 break
+            # reject self-intersecting polygons — offset may cause edges
+            # to cross when the polygon is too narrow for the spacing.
+            if _polygon_has_self_intersection(next_poly):
+                break
+            # reject degenerate polygons with very short edges (offset
+            # distortion created nearly-coincident vertices).
+            min_edge = min(
+                _distance_m(next_poly[i].x - next_poly[(i + 1) % len(next_poly)].x,
+                            next_poly[i].y - next_poly[(i + 1) % len(next_poly)].y)
+                for i in range(len(next_poly))
+            )
+            if min_edge < spacing * 0.15:
+                break
             # check area shrink
             area_prev = abs(_polygon_signed_area(current))
             area_next = abs(_polygon_signed_area(next_poly))
@@ -953,6 +966,10 @@ def generate_simple_patrol_waypoints(
     # (zero waste at straight edges) but clamp the vertex miter depth to the
     # same value (chamfer offset).  Sharp corners are pulled back along the
     # angle bisector so they stay within scan coverage.
+    # Per Maths.md §5.2: the outermost loop is inset by the full sensor
+    # radius R (= search_radius) so the sensor coverage outer edge
+    # reaches the polygon boundary (zero waste on straight edges).
+    # Chamfer (max_vertex_offset=R) limits miter blowup at sharp corners.
     loops = _build_concentric_loops(
         local_polygon,
         spacing,
@@ -1004,28 +1021,22 @@ def generate_simple_patrol_waypoints(
                     spacing=spacing,
                 )
     else:
-        # auto: current behavior (prefer concentric unless circle ownship interior)
-        if loops and not ownship_inside_circle:
-            # Use concentric loops but defer rotation/densify as above.
-            raw_loops = loops
-            used_loops = True
-        
-        else:
+        # Default to lawnmower (scanline) generation for any unrecognised pattern.
+        candidate_paths = _generate_candidate_paths(
+            polygon_xy=polygon_xy,
+            sweep_angle_deg=sweep_angle_deg,
+            scan_margin=scan_margin,
+            endpoint_margin=endpoint_margin,
+            spacing=spacing,
+        )
+        if not candidate_paths:
             candidate_paths = _generate_candidate_paths(
                 polygon_xy=polygon_xy,
                 sweep_angle_deg=sweep_angle_deg,
-                scan_margin=scan_margin,
+                scan_margin=search_radius,
                 endpoint_margin=endpoint_margin,
                 spacing=spacing,
             )
-            if not candidate_paths:
-                candidate_paths = _generate_candidate_paths(
-                    polygon_xy=polygon_xy,
-                    sweep_angle_deg=sweep_angle_deg,
-                    scan_margin=search_radius,
-                    endpoint_margin=endpoint_margin,
-                    spacing=spacing,
-                )
 
     if not candidate_paths and not raw_loops:
         centroid = GeoPoint(longitude=ref_lon, latitude=ref_lat)
@@ -1092,12 +1103,13 @@ def generate_simple_patrol_waypoints(
     start_point = None
     if prepared_candidate_paths:
         if 'used_loops' in locals() and used_loops:
-            # flatten outer->inner loops into a single path, skipping the
-            # closing point of every loop so the vessel goes directly from
-            # the end of one loop to the start of the next.
+            # Flatten outer->inner loops into a single path, skipping the
+            # closing point of each loop (the first vertex, which appears
+            # again at the end). The loop ends at its last distinct vertex
+            # before transitioning to the next inner loop.
             selected_path: List[_LocalPoint] = []
             for p in prepared_candidate_paths:
-                selected_path.extend(p[:-1])  # skip closing point on all loops
+                selected_path.extend(p[:-1])  # skip closing point
         else:
             selected_path = prepared_candidate_paths[0]
     else:
@@ -1156,15 +1168,15 @@ def generate_simple_patrol_waypoints(
                 prepared_candidate_paths.append(safe_path if safe_path else dense_rotated_closed)
 
             # Flatten outer->inner loops into selected_path, skipping the
-            # closing point of every loop so the vessel goes directly from
-            # the end of one loop to the start of the next.
+            # closing point of each loop (the first vertex, which appears
+            # again at the end). The loop ends at its last distinct vertex
+            # before transitioning to the next inner loop.
             selected_path = []
             for p in prepared_candidate_paths:
-                selected_path.extend(p[:-1])  # skip closing point on all loops
-            # Rotate the flattened path so the first waypoint is the point
-            # nearest to the anchor (ownship inside, or entry vertex outside).
-            rotate_ref = entry_local if not _point_in_polygon((ownship_local.x, ownship_local.y), polygon_xy) and entry_local is not None else ownship_local
-            selected_path = _rotate_path_to_nearest(selected_path, rotate_ref)
+                selected_path.extend(p[:-1])  # skip closing point
+            # Each loop was already rotated to start nearest to the anchor
+            # (ownship when inside, entry vertex when outside). The flattened
+            # path already has the correct ordering — no second rotation needed.
         else:
             # fallback to previous behaviour for non-stitched candidate paths
             if _point_in_polygon((ownship_local.x, ownship_local.y), polygon_xy):
@@ -1191,6 +1203,14 @@ def generate_simple_patrol_waypoints(
                     approach_heading_deg = _bearing_from_vector(entry_local.x - ownship_local.x, entry_local.y - ownship_local.y)
                 else:
                     approach_heading_deg = ownship_heading_deg
+                # Extend candidates with forward/backward variants so the path
+                # can start from either end, minimising the jump from the entry
+                # vertex to the first coverage waypoint.
+                outside_start_variants: List[List[_LocalPoint]] = []
+                for path in prepared_candidate_paths:
+                    outside_start_variants.extend(_build_inside_start_variants(path))
+                if outside_start_variants:
+                    prepared_candidate_paths = outside_start_variants
                 selected_path = min(
                     prepared_candidate_paths,
                     key=lambda points: (
@@ -1243,18 +1263,16 @@ def generate_simple_patrol_waypoints(
             insert_fill = safe_fill if safe_fill else dense_fill
             if not insert_fill:
                 continue
-            # insert near cluster centroid into the selected path
-            cx = sum(p.x for p in hull) / len(hull)
-            cy = sum(p.y for p in hull) / len(hull)
-            best_idx = 0
-            best_d = float('inf')
-            for idx, sp in enumerate(selected_path):
-                d = _distance_m(sp.x - cx, sp.y - cy)
-                if d < best_d:
-                    best_d = d
-                    best_idx = idx
-            insert_at = min(max(best_idx + 1, 0), len(selected_path))
-            selected_path[insert_at:insert_at] = insert_fill
+            # Append the fill patch at the end of the path rather than
+            # inserting mid-path, which would create two transition jumps
+            # (main→fill and fill→main).  The vessel traverses all
+            # concentric loops first, then covers any uncovered pockets.
+            selected_path.extend(insert_fill)
+
+        # Remove duplicate consecutive points that may arise from fill
+        # patches whose path shares vertices with the main concentric route.
+        deduped = _dedupe_path_points([(p.x, p.y) for p in selected_path])
+        selected_path = [_LocalPoint(x=x, y=y) for x, y in deduped]
 
     geo_waypoints = [
         PatrolWaypoint(

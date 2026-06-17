@@ -18,6 +18,7 @@ from domain.models import GeoPoint, TaskArea
 
 
 # Edit these values to preview different circle patrol plans.
+PATROL_PATTERN: str = "lawnmower"  # "lawnmower" or "concentric"
 PATROL_NUM_PASSES = 8
 PATROL_SCAN_RADIUS_M: float | None = 1000.0
 PATROL_BOUNDARY_CLEARANCE_M: float | None = 50.0
@@ -54,6 +55,7 @@ def main() -> None:
         ownship_heading_deg=OWNSHIP_HEADING_DEG,
         scan_radius_m=PATROL_SCAN_RADIUS_M,
         boundary_clearance_m=PATROL_BOUNDARY_CLEARANCE_M,
+        pattern=PATROL_PATTERN,
     )
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -336,9 +338,10 @@ def title_text(waypoint_count: int, length_m: float) -> str:
         CIRCLE_RADIUS_M,
     )
     return (
-        f"Circle patrol preview | waypoints={waypoint_count} | length={length_m / 1000:.2f} km | "
-        f"radius={CIRCLE_RADIUS_M:.0f} m | scan_radius={PATROL_SCAN_RADIUS_M} | "
-        f"clearance={PATROL_BOUNDARY_CLEARANCE_M} | ownship_inside={inside}"
+        f"Circle patrol preview | pattern={PATROL_PATTERN} | waypoints={waypoint_count} | "
+        f"length={length_m / 1000:.2f} km | radius={CIRCLE_RADIUS_M:.0f} m | "
+        f"scan_radius={PATROL_SCAN_RADIUS_M} | clearance={PATROL_BOUNDARY_CLEARANCE_M} | "
+        f"ownship_inside={inside}"
     )
 
 
