@@ -1,9 +1,12 @@
+import logging
 from config.settings import settings
 from domain.models import AutonomyPatrolDispatch, AutonomyTrackingDispatch
 from store.collaboration_store import collaboration_store
 from utils.time_utils import utc_now
 from typing import Optional
 import requests
+
+logger = logging.getLogger(__name__)
 
 
 class AutonomyClient:
@@ -77,6 +80,7 @@ class AutonomyClient:
                 "url": url,
                 "timeout_sec": cfg.timeout_sec,
                 "payload_summary": self._payload_summary(payload_dict),
+                "patrol_pattern": payload_dict.get("patrol_pattern"),
                 "status_code": status_code,
                 "accepted": accepted,
                 "response_body": response_body,
@@ -94,6 +98,15 @@ class AutonomyClient:
 
     def post_patrol_plan(self, payload: AutonomyPatrolDispatch) -> dict:
         payload_dict = payload.model_dump(mode="json")
+        wpts = payload_dict.get("params", {}).get("waypoints", [])
+        if wpts:
+            logger.info(
+                "DISPATCH_DEBUG task=%s waypoint_count=%d first=(%.4f,%.4f) last=(%.4f,%.4f)",
+                payload_dict.get("task_id"),
+                len(wpts),
+                wpts[0]["longitude"], wpts[0]["latitude"],
+                wpts[-1]["longitude"], wpts[-1]["latitude"],
+            )
         if self._mode() == "http":
             return self._post_http_and_log("patrol", payload_dict)
 

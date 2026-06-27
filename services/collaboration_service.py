@@ -642,6 +642,7 @@ class CollaborationService:
                 task_id=task.task_id,
                 task_status=1,
                 task_mode=1,
+                patrol_pattern=task.patrol_pattern,
                 params=AutonomyPatrolParams(
                     total_number_of_points=len(waypoints),
                     waypoints=waypoints,

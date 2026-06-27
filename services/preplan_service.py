@@ -38,15 +38,18 @@ class PreplanService:
             ownship_heading_deg = ownship.heading
 
         point_generation_start_time = utc_now()
+        scan_radius = get_patrol_scan_radius_m()
+        max_step = scan_radius * 4.0 if scan_radius is not None else None
         waypoints = generate_simple_patrol_waypoints(
             task_area=task.task_area,
             expected_speed=task.expected_speed or 0.0,
             num_passes=get_patrol_num_passes(),
             ownship_point=ownship_point,
             ownship_heading_deg=ownship_heading_deg,
-            scan_radius_m=get_patrol_scan_radius_m(),
+            scan_radius_m=scan_radius,
             boundary_clearance_m=get_patrol_boundary_clearance_m(),
             pattern=(task.patrol_pattern or "lawnmower").lower(),
+            max_step_m=max_step,
         )
         point_generated_time = utc_now()
         print_point_generation_timing(

@@ -20,7 +20,7 @@ class TaskArea(CompatModel):
     points: Optional[List[GeoPoint]] = None
     center: Optional[GeoPoint] = None
     radius_m: Optional[float] = Field(default=None, gt=0.0)
-    # Optional patrol generation pattern for this area: "auto" | "concentric" | "lawnmower"
+    # Optional patrol generation pattern for this area: "concentric" | "lawnmower" (default)
     patrol_pattern: Optional[str] = None
 
     @model_validator(mode="after")
@@ -607,6 +607,7 @@ class TaskResultResponse(CompatModel):
     finish_reason: Optional[FinishReason] = None
     optronic_status: Optional[OptronicStatus] = None
     planning_callback: Optional[FeasibilityCallbackRequest] = None
+    patrol_pattern: Optional[str] = None
 
 
 class TaskOutputResponse(CompatModel):
@@ -619,6 +620,7 @@ class TaskOutputResponse(CompatModel):
     fixed_tracking_output: Optional[FixedTrackingOutput] = None
     preplan_output: Optional[PreplanOutput] = None
     update_time: datetime
+    patrol_pattern: Optional[str] = None
 
 
 class AutonomyPatrolWaypoint(CompatModel):
@@ -644,6 +646,7 @@ class AutonomyPatrolDispatch(CompatModel):
     task_id: Union[int, str]
     task_status: int = 1
     task_mode: int = 1
+    patrol_pattern: Optional[str] = None
     params: AutonomyPatrolParams
 
 
