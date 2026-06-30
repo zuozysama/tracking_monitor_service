@@ -15,6 +15,120 @@ from domain.dds_contract import (
     TASK_UPDATE_TOPIC,
 )
 
+DEFAULT_TARGET_TRACK_ALL_TOPIC = "cc_lm_situation_generating.v1.target_track_all"
+TARGET_TRACK_ALL_FIELD_COUNT = 65
+TARGET_TRACK_ALL_PACKET_SIZE = 369
+CONTROL_WORD_PACKET_SIZE = 104
+TARGET_TRACK_ALL_ANGLE_U16_LSB_DEG = 180.0 / (2**15)
+TARGET_TRACK_ALL_ELEVATION_I16_LSB_DEG = 90.0 / (2**14)
+TARGET_TRACK_ALL_GEO_I32_LSB_DEG = 90.0 / (2**30)
+
+CONTROL_WORD_FIELDS = [
+    ("target_category_1", 1, "uint8", 1.0),
+    ("target_type_1", 1, "uint8", 1.0),
+    ("target_category_2", 1, "uint8", 1.0),
+    ("military_civil_attr", 1, "uint8", 1.0),
+    ("enemy_friend_attr", 1, "uint8", 1.0),
+    ("control_reserved_6", 1, "raw", 1.0),
+    ("country_region_code", 2, "uint16", 1.0),
+    ("target_type_2", 2, "uint16", 1.0),
+    ("control_reserved_9", 2, "raw", 1.0),
+    ("target_model", 24, "gb2312_string", 1.0),
+    ("civil_aircraft_flight_no", 8, "ascii_string", 1.0),
+    ("civil_ship_user_id", 4, "uint32", 1.0),
+    ("control_reserved_13", 4, "raw", 1.0),
+    ("target_name", 40, "gb2312_string", 1.0),
+    ("mode_3a_code", 2, "uint16", 1.0),
+    ("target_type_identification_basis", 1, "uint8", 1.0),
+    ("enemy_friend_identification_basis", 1, "bit_flags", 1.0),
+    ("control_other_use", 1, "uint8", 1.0),
+    ("track_status", 1, "uint8", 1.0),
+    ("track_quality_1", 1, "uint8", 1.0),
+    ("track_quality_2", 1, "uint8", 1.0),
+    ("search_tracking_mode", 1, "uint8", 1.0),
+    ("warning_flag", 1, "uint8", 1.0),
+    ("image_target_type", 2, "uint16", 1.0),
+]
+
+CONTROL_WORD_ALL_F_INVALID_FIELDS = {
+    "country_region_code",
+    "target_model",
+    "civil_aircraft_flight_no",
+    "target_name",
+    "track_status",
+    "track_quality_1",
+    "track_quality_2",
+    "search_tracking_mode",
+}
+
+TARGET_TRACK_ALL_FIELDS = [
+    ("protocol_type", 4, "uint32", 1.0),
+    ("protocol_version", 1, "uint8", 1.0),
+    ("packet_length", 2, "uint16", 1.0),
+    ("message_type", 1, "uint8", 1.0),
+    ("message_sequence", 4, "uint32", 1.0),
+    ("header_reserved", 1, "uint8", 1.0),
+    ("timestamp_sec", 4, "uint32", 1.0),
+    ("timestamp_ms", 4, "uint32", 1.0),
+    ("composite_track_batch_no", 4, "bcd", 1.0),
+    ("control_word", CONTROL_WORD_PACKET_SIZE, "control_word", 1.0),
+    ("validity_flags", 8, "raw", 1.0),
+    ("data_source", 4, "raw", 1.0),
+    ("empty_13", 0, "empty", 1.0),
+    ("data_period_sec", 2, "uint16", 0.001),
+    ("reserved_15", 22, "raw", 1.0),
+    ("target_distance_m", 4, "uint32", 1.0),
+    ("target_bearing_deg", 2, "uint16", TARGET_TRACK_ALL_ANGLE_U16_LSB_DEG),
+    ("target_elevation_deg", 2, "int16", TARGET_TRACK_ALL_ELEVATION_I16_LSB_DEG),
+    ("target_x_m", 4, "int32", 0.1),
+    ("target_y_m", 4, "int32", 0.1),
+    ("target_z_m", 4, "int32", 0.1),
+    ("target_relative_heading_deg", 2, "uint16", TARGET_TRACK_ALL_ANGLE_U16_LSB_DEG),
+    ("target_absolute_heading_deg", 2, "uint16", TARGET_TRACK_ALL_ANGLE_U16_LSB_DEG),
+    ("target_relative_speed_mps", 2, "uint16", 0.1),
+    ("target_absolute_speed_mps", 2, "uint16", 0.1),
+    ("reserved_26", 2, "raw", 1.0),
+    ("reserved_27", 2, "raw", 1.0),
+    ("target_vx_mps", 2, "int16", 0.1),
+    ("target_vy_mps", 2, "int16", 0.1),
+    ("target_vz_mps", 2, "int16", 0.1),
+    ("reserved_31", 2, "raw", 1.0),
+    ("longitude_deg", 4, "int32", TARGET_TRACK_ALL_GEO_I32_LSB_DEG),
+    ("latitude_deg", 4, "int32", TARGET_TRACK_ALL_GEO_I32_LSB_DEG),
+    ("altitude_m", 4, "uint32", 1.0),
+    ("reserved_35", 12, "raw", 1.0),
+    ("longitude_error_reserved", 4, "raw", 1.0),
+    ("latitude_error_reserved", 4, "raw", 1.0),
+    ("major_axis_error_reserved", 2, "raw", 1.0),
+    ("minor_axis_error_reserved", 2, "raw", 1.0),
+    ("major_axis_north_angle_reserved", 2, "raw", 1.0),
+    ("track_quality_reserved", 2, "raw", 1.0),
+    ("target_kind_confidence_reserved", 2, "raw", 1.0),
+    ("target_type_confidence_reserved", 2, "raw", 1.0),
+    ("image_domain_target_batch_no", 4, "raw", 1.0),
+    ("ld_radiation_source_batch_no_1", 4, "raw", 1.0),
+    ("ld_radiation_source_batch_no_2", 4, "raw", 1.0),
+    ("ld_radiation_source_batch_no_3", 4, "raw", 1.0),
+    ("reserved_48", 20, "raw", 1.0),
+    ("reserved_49", 12, "raw", 1.0),
+    ("reserved_50", 4, "raw", 1.0),
+    ("bd_target_batch_no", 4, "bcd", 1.0),
+    ("ais_target_batch_no_reserved", 4, "raw", 1.0),
+    ("adsb_target_batch_no_reserved", 4, "raw", 1.0),
+    ("navigation_ld1_target_batch_no", 4, "raw", 1.0),
+    ("navigation_ld2_target_batch_no", 4, "raw", 1.0),
+    ("threat_level", 2, "uint16", 1.0),
+    ("navigation_ld_target_batch_no", 4, "uint32", 1.0),
+    ("image_target_length", 2, "uint16", 1.0),
+    ("image_target_width", 2, "uint16", 1.0),
+    ("image_target_height", 2, "uint16", 1.0),
+    ("absolute_heading_error", 2, "raw", 1.0),
+    ("absolute_speed_error", 2, "raw", 1.0),
+    ("ship_number", 30, "raw", 1.0),
+    ("navigation_ld_virtual_j_flag", 1, "uint8", 1.0),
+    ("reserved_65", 1, "raw", 1.0),
+]
+
 NAV_OUTER_V3_HEAD_LEN = 16
 NAV_DOC90_LEN = 90
 NAV_TOTAL_LEN = NAV_OUTER_V3_HEAD_LEN + NAV_DOC90_LEN
@@ -155,6 +269,318 @@ def _i32_from_deg(value: Any) -> int:
 
 def _deg_from_i32(raw: int) -> float:
     return float(raw) * NAV_GEO_LSB_DEG
+
+
+def _safe_int_value(value: Any, default: int = 0) -> int:
+    try:
+        if value is None:
+            return default
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return default
+            if text.lower().startswith("0x"):
+                return int(text, 16)
+            if all(ch in "0123456789abcdefABCDEF" for ch in text) and any(
+                ch in "abcdefABCDEF" for ch in text
+            ):
+                return int(text, 16)
+        return int(value)
+    except Exception:
+        return default
+
+
+def _optional_int_value(value: Any) -> int | None:
+    try:
+        if value is None:
+            return None
+        return _safe_int_value(value)
+    except Exception:
+        return None
+
+
+def _safe_float_value(value: Any, default: float = 0.0) -> float:
+    try:
+        if value is None:
+            return default
+        return float(value)
+    except Exception:
+        return default
+
+
+def _first_present(*values: Any) -> Any:
+    for value in values:
+        if value is not None:
+            return value
+    return None
+
+
+def _is_target_track_all_topic(topic: str) -> bool:
+    return topic == DEFAULT_TARGET_TRACK_ALL_TOPIC
+
+
+def _looks_like_target_track_all_payload(body: bytes) -> bool:
+    raw = bytes(body)
+    candidates: list[bytes] = []
+    if len(raw) >= TARGET_TRACK_ALL_PACKET_SIZE:
+        candidates.append(raw[:TARGET_TRACK_ALL_PACKET_SIZE])
+    if len(raw) >= NAV_OUTER_V3_HEAD_LEN + TARGET_TRACK_ALL_PACKET_SIZE:
+        candidates.append(raw[NAV_OUTER_V3_HEAD_LEN : NAV_OUTER_V3_HEAD_LEN + TARGET_TRACK_ALL_PACKET_SIZE])
+
+    for payload in candidates:
+        if len(payload) < 7:
+            continue
+        packet_len = int.from_bytes(payload[5:7], byteorder="big", signed=False)
+        protocol_version = payload[4]
+        if packet_len in {0, TARGET_TRACK_ALL_PACKET_SIZE, len(raw)} and protocol_version <= 10:
+            return True
+    return False
+
+
+def _extract_target_track_all_payload(body: bytes) -> tuple[bytes, str, str]:
+    raw = bytes(body)
+    if len(raw) >= NAV_OUTER_V3_HEAD_LEN + TARGET_TRACK_ALL_PACKET_SIZE:
+        shifted = raw[NAV_OUTER_V3_HEAD_LEN : NAV_OUTER_V3_HEAD_LEN + TARGET_TRACK_ALL_PACKET_SIZE]
+        shifted_len = int.from_bytes(shifted[5:7], byteorder="big", signed=False)
+        if shifted_len in {0, TARGET_TRACK_ALL_PACKET_SIZE, len(shifted)}:
+            return shifted, "v3_16_plus_target_track_all", raw[:NAV_OUTER_V3_HEAD_LEN].hex(" ")
+
+    if len(raw) >= TARGET_TRACK_ALL_PACKET_SIZE:
+        return raw[:TARGET_TRACK_ALL_PACKET_SIZE], "target_track_all_direct", ""
+
+    return raw, "target_track_all_direct", ""
+
+
+def _target_track_all_timestamp(fields: dict[str, Any]) -> str:
+    sec_raw = _safe_int_value(fields.get("timestamp_sec"), 0)
+    ms_raw = _safe_int_value(fields.get("timestamp_ms"), 0)
+    if sec_raw <= 0:
+        return _iso_utc_now()
+    try:
+        ms = max(0, min(ms_raw, 999))
+        return datetime.fromtimestamp(
+            float(sec_raw) + float(ms) / 1000.0,
+            tz=timezone.utc,
+        ).isoformat().replace("+00:00", "Z")
+    except Exception:
+        return _iso_utc_now()
+
+
+def _is_all_ff(raw: bytes) -> bool:
+    return bool(raw) and all(item == 0xFF for item in raw)
+
+
+def _decode_target_track_all_bcd(raw: bytes) -> int:
+    digits: list[str] = []
+    for item in raw:
+        high = (item >> 4) & 0x0F
+        low = item & 0x0F
+        if high <= 9:
+            digits.append(str(high))
+        if low <= 9:
+            digits.append(str(low))
+    return int("".join(digits).lstrip("0") or "0")
+
+
+def _decode_target_track_all_fixed_text(raw: bytes, encoding: str) -> str | None:
+    if _is_all_ff(raw):
+        return None
+    text = raw.rstrip(b"\x00 ").decode(encoding, errors="ignore")
+    return text or None
+
+
+def _decode_control_word_field(raw: bytes, name: str, field_type: str, scale: float) -> Any:
+    if _is_all_ff(raw) and name in CONTROL_WORD_ALL_F_INVALID_FIELDS:
+        return None
+    if field_type == "ascii_string":
+        return _decode_target_track_all_fixed_text(raw, "ascii")
+    if field_type == "gb2312_string":
+        return _decode_target_track_all_fixed_text(raw, "gb2312")
+    if field_type == "bit_flags":
+        value = int.from_bytes(raw, byteorder="big", signed=False)
+        return {
+            "raw": value,
+            "manual_label": bool(value & 0b0001),
+            "enemy_friend_identifier": bool(value & 0b0010),
+            "electronic_recon_device": bool(value & 0b0100),
+            "external_platform_intel": bool(value & 0b1000),
+        }
+    return _decode_target_track_all_field(raw, field_type, scale)
+
+
+def _decode_control_word_payload(raw: bytes) -> dict[str, Any]:
+    if len(raw) != CONTROL_WORD_PACKET_SIZE:
+        return {
+            "decode_error": "control_word_size_mismatch",
+            "expected_len": CONTROL_WORD_PACKET_SIZE,
+            "raw_len": len(raw),
+            "raw_hex": raw.hex(),
+        }
+
+    offset = 0
+    fields: dict[str, Any] = {}
+    offsets: dict[str, list[int]] = {}
+    for name, byte_size, field_type, scale in CONTROL_WORD_FIELDS:
+        item = raw[offset : offset + byte_size]
+        fields[name] = _decode_control_word_field(item, name, field_type, scale)
+        offsets[name] = [offset, offset + byte_size - 1]
+        offset += byte_size
+
+    return {
+        "decode_format": "control_word",
+        "raw_len": len(raw),
+        "raw_hex": raw.hex(),
+        "fields": fields,
+        "offsets": offsets,
+    }
+
+
+def _decode_target_track_all_field(raw: bytes, field_type: str, scale: float) -> Any:
+    if field_type == "empty":
+        return None
+    if field_type == "control_word":
+        return _decode_control_word_payload(raw)
+    if field_type in {"raw", "reserved"}:
+        return raw.hex()
+    if field_type == "bcd":
+        return _decode_target_track_all_bcd(raw)
+    if field_type in {"uint8", "uint16", "uint32", "uint64", "int8", "int16", "int32", "int64"}:
+        signed = field_type.startswith("int")
+        value = int.from_bytes(raw, byteorder="big", signed=signed)
+        if scale == 1.0:
+            return value
+        return value * scale
+    return {
+        "unsupported_type": field_type,
+        "raw_hex": raw.hex(),
+    }
+
+
+def _decode_target_track_all_payload(payload: bytes) -> dict[str, Any]:
+    expected_size = sum(byte_size for _name, byte_size, _field_type, _scale in TARGET_TRACK_ALL_FIELDS)
+    problems: list[str] = []
+    if len(TARGET_TRACK_ALL_FIELDS) != TARGET_TRACK_ALL_FIELD_COUNT:
+        problems.append(f"expected {TARGET_TRACK_ALL_FIELD_COUNT} fields, got {len(TARGET_TRACK_ALL_FIELDS)}")
+    if expected_size != TARGET_TRACK_ALL_PACKET_SIZE:
+        problems.append(f"expected total size {TARGET_TRACK_ALL_PACKET_SIZE}, got {expected_size}")
+    if problems:
+        return {
+            "decode_error": "target_track_all_spec_invalid",
+            "problems": problems,
+            "raw_len": len(payload),
+            "raw_hex": payload.hex(),
+        }
+    if len(payload) < TARGET_TRACK_ALL_PACKET_SIZE:
+        return {
+            "decode_error": "target_track_all_payload_too_short",
+            "expected_len": TARGET_TRACK_ALL_PACKET_SIZE,
+            "raw_len": len(payload),
+            "raw_hex": payload.hex(),
+        }
+
+    offset = 0
+    fields: dict[str, Any] = {}
+    offsets: dict[str, list[int]] = {}
+    body = payload[:TARGET_TRACK_ALL_PACKET_SIZE]
+    for name, byte_size, field_type, scale in TARGET_TRACK_ALL_FIELDS:
+        raw = body[offset : offset + byte_size]
+        fields[name] = _decode_target_track_all_field(raw, field_type, scale)
+        offsets[name] = [offset, offset + byte_size - 1]
+        offset += byte_size
+
+    return {
+        "decode_format": "target_track_all",
+        "raw_len": len(body),
+        "raw_hex": body.hex(),
+        "fields": fields,
+        "offsets": offsets,
+    }
+
+
+def _decode_target_track_all_as_target_perception(topic: str, body: bytes) -> dict:
+    payload, input_layout, outer_head_hex = _extract_target_track_all_payload(body)
+    decoded = _decode_target_track_all_payload(payload)
+    decoded["topic"] = topic
+    decoded["input_layout"] = input_layout
+    decoded["input_raw_len"] = len(body)
+    if outer_head_hex:
+        decoded["outer_v3_head_hex"] = outer_head_hex
+
+    fields = decoded.get("fields")
+    if not isinstance(fields, dict):
+        return decoded
+
+    control_word = fields.get("control_word")
+    control_fields = {}
+    if isinstance(control_word, dict) and isinstance(control_word.get("fields"), dict):
+        control_fields = control_word["fields"]
+
+    timestamp = _target_track_all_timestamp(fields)
+    batch_no = _safe_int_value(fields.get("composite_track_batch_no"), 0)
+    source_platform_id = _safe_int_value(fields.get("data_source"), 0)
+    target_type_code = _optional_int_value(
+        _first_present(
+            control_fields.get("target_type_2"),
+            control_fields.get("target_type_1"),
+            control_fields.get("image_target_type"),
+        )
+    )
+    target_name = _first_present(control_fields.get("target_name"), control_fields.get("target_model"))
+    threat_level = _optional_int_value(fields.get("threat_level"))
+    if threat_level in {0, 0xFFFF}:
+        threat_level = None
+
+    target = {
+        "source_platform_id": source_platform_id,
+        "target_id": f"target-{batch_no}",
+        "target_batch_no": batch_no,
+        "target_position_attr": _optional_int_value(control_fields.get("track_status")),
+        "target_length_m": _safe_float_value(fields.get("image_target_length"), 0.0),
+        "target_width_m": _safe_float_value(fields.get("image_target_width"), 0.0),
+        "target_height_size_m": _safe_float_value(fields.get("image_target_height"), 0.0),
+        "target_bearing_deg": _safe_float_value(fields.get("target_bearing_deg"), 0.0),
+        "target_distance_m": _safe_float_value(fields.get("target_distance_m"), 0.0),
+        "target_height_m": _safe_float_value(fields.get("altitude_m"), 0.0),
+        "target_absolute_speed_mps": _safe_float_value(fields.get("target_absolute_speed_mps"), 0.0),
+        "target_absolute_heading_deg": _safe_float_value(fields.get("target_absolute_heading_deg"), 0.0),
+        "target_relative_speed_mps": _safe_float_value(fields.get("target_relative_speed_mps"), 0.0),
+        "target_relative_heading_deg": _safe_float_value(fields.get("target_relative_heading_deg"), 0.0),
+        "target_longitude": _safe_float_value(fields.get("longitude_deg"), 0.0),
+        "target_latitude": _safe_float_value(fields.get("latitude_deg"), 0.0),
+        "target_x_m": _safe_float_value(fields.get("target_x_m"), 0.0),
+        "target_y_m": _safe_float_value(fields.get("target_y_m"), 0.0),
+        "target_z_m": _safe_float_value(fields.get("target_z_m"), 0.0),
+        "target_vx_mps": _safe_float_value(fields.get("target_vx_mps"), 0.0),
+        "target_vy_mps": _safe_float_value(fields.get("target_vy_mps"), 0.0),
+        "target_vz_mps": _safe_float_value(fields.get("target_vz_mps"), 0.0),
+        "target_type_code": target_type_code,
+        "enemy_friend_attr": _optional_int_value(control_fields.get("enemy_friend_attr")),
+        "military_civil_attr": _safe_int_value(control_fields.get("military_civil_attr"), 0),
+        "target_name": target_name,
+        "threat_level": threat_level,
+        "track_quality_1": _optional_int_value(control_fields.get("track_quality_1")),
+        "track_quality_2": _optional_int_value(control_fields.get("track_quality_2")),
+        "timestamp": timestamp,
+        "active": True,
+    }
+
+    return {
+        "format": "target_track_all_369_to_target_perception",
+        "decode_format": decoded.get("decode_format", "target_track_all"),
+        "input_layout": decoded.get("input_layout"),
+        "input_raw_len": decoded.get("input_raw_len", len(body)),
+        "raw_len": decoded.get("raw_len"),
+        "raw_hex": decoded.get("raw_hex", body.hex()),
+        "source_platform_id": source_platform_id,
+        "source_id": str(source_platform_id),
+        "revision": _safe_int_value(fields.get("message_sequence"), 0),
+        "target_count": 1,
+        "targets": [target],
+        "target_track_all_fields": fields,
+        "control_word_fields": control_fields,
+        "target_track_all_decoded": decoded,
+        "timestamp": timestamp,
+    }
 
 
 def _nav_timestamp_parts(payload: dict[str, Any]) -> tuple[int, int]:
@@ -1019,6 +1445,11 @@ def decode_topic_payload(topic: str, body: bytes) -> dict:
             "raw_hex": doc90.hex(),
             "decode_format": "doc90_21_plus_69_fields",
         }
+
+    if _is_target_track_all_topic(topic) or (
+        topic == TARGET_PERCEPTION_TOPIC and _looks_like_target_track_all_payload(body)
+    ):
+        return _decode_target_track_all_as_target_perception(topic, body)
 
     if topic == TARGET_PERCEPTION_TOPIC:
         def _decode_target_payload_frame(frame: bytes) -> tuple[dict | None, str | None, int]:
