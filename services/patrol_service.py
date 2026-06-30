@@ -36,15 +36,20 @@ class PatrolService:
                 ownship_heading_deg = ownship.heading
 
             expected_speed = task.expected_speed or 0.0
+            scan_radius = get_patrol_scan_radius_m()
+            # densify step scales with scan radius so waypoints are dense
+            # enough for smooth traversal regardless of sensor coverage.
+            max_step = scan_radius * 4.0 if scan_radius is not None else None
             waypoints = generate_simple_patrol_waypoints(
                 task_area=task.task_area,
                 expected_speed=expected_speed,
                 num_passes=get_patrol_num_passes(),
                 ownship_point=ownship_point,
                 ownship_heading_deg=ownship_heading_deg,
-                scan_radius_m=get_patrol_scan_radius_m(),
+                scan_radius_m=scan_radius,
                 boundary_clearance_m=get_patrol_boundary_clearance_m(),
                 pattern=(task.patrol_pattern or "lawnmower").lower(),
+                max_step_m=max_step,
             )
             point_type = "patrol_waypoints"
 

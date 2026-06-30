@@ -445,6 +445,7 @@ class TaskService:
             finish_reason=task.finish_reason,
             optronic_status=task.optronic_status,
             planning_callback=task.planning_callback,
+            patrol_pattern=task.patrol_pattern,
         )
 
     def get_output(self, task_id: str) -> TaskOutputResponse:
@@ -475,6 +476,7 @@ class TaskService:
             fixed_tracking_output=task.fixed_tracking_output,
             preplan_output=task.preplan_output,
             update_time=task.update_time,
+            patrol_pattern=task.patrol_pattern,
         )
 
     def get_debug_candidates(self, task_id: str) -> dict:
