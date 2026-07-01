@@ -120,11 +120,9 @@ def _should_apply_default_surface_filter(
 
 def _default_surface_threat_filter(
     target: TargetState,
-    required_position_attr: int,
+    _required_position_attr: int,
     min_threat_level: int,
 ) -> bool:
-    if target.target_position_attr != required_position_attr:
-        return False
     return (target.threat_level or 0) >= min_threat_level
 
 
@@ -346,7 +344,7 @@ def _print_filter_debug(
     print(f"[TargetFilter] sector_skipped_for_identity: {sector_skipped_for_identity}")
     print(
         f"[TargetFilter] default_surface_filter_active: {default_surface_filter_active} "
-        f"(target_position_attr={default_surface_position_attr}, threat_level>={default_min_threat_level})"
+        f"(threat_level>={default_min_threat_level})"
     )
 
     if not candidates:

@@ -15,7 +15,6 @@ curl -sS -X POST "${BASE_URL}/api/v1/tasks" \
   "priority": 1,
   "target_info": {
     "target_id": "target-001",
-    "target_batch_no": 1,
     "target_type_code": 106,
     "threat_level": 2,
     "target_name": "target-001",

@@ -218,7 +218,7 @@ def get_patrol_num_passes() -> int:
 def get_patrol_scan_radius_m() -> float | None:
     value = _get_env_optional_float("PATROL_SCAN_RADIUS_M", min_value=0.1)
     if value is None:
-        return 5000.0
+        return 500.0
     return value
 
 
