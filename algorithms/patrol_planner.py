@@ -427,8 +427,8 @@ def _compute_uncovered_clusters(
     if not polygon_xy or not path:
         return []
 
-    # grid sampling step (quarter spacing to catch small corner gaps)
-    step = max(spacing * 0.25, 1.0)
+    # grid sampling step (half spacing for sensitivity)
+    step = max(spacing * 0.5, 1.0)
     xs = [p[0] for p in polygon_xy]
     ys = [p[1] for p in polygon_xy]
     min_x, max_x = min(xs), max(xs)
@@ -728,12 +728,30 @@ def _compute_entry_scan_offset(
     return abs(first_scan_y - entry_scan_y)
 
 
+def _compute_endpoint_distance(
+    points: List[_LocalPoint],
+    target_point: _LocalPoint,
+) -> float:
+    """计算路径终点到目标点（断点）的距离"""
+    if not points:
+        return float("inf")
+    last = points[-1]
+    return _distance_m(last.x - target_point.x, last.y - target_point.y)
+
+
 def _build_inside_start_variants(points: List[_LocalPoint]) -> List[List[_LocalPoint]]:
+    """生成 lawnmower 开放折线的起点变体。
+
+    对于开放折线（lawnmower 扫线路径），只保留 forward（原始顺序）
+    和 backward（完全反转）两种变体。不从中间切开——切开会导致
+    不连续跳跃（非相邻航点间的大跨度移动）和覆盖遗漏。
+
+    Concentric 回字形路径有自己的起点旋转逻辑（_rotate_path_to_nearest），
+    不走这里。
+    """
     if not points:
         return []
 
-    # Coverage paths are open polylines. Cutting them from the middle can
-    # create non-adjacent jumps, so inside starts only choose either end.
     forward = list(points)
     backward = list(reversed(points))
     if len(points) == 1:
@@ -1016,6 +1034,7 @@ def generate_simple_patrol_waypoints(
     boundary_clearance_m: Optional[float] = None,
     start_turn_penalty_m_per_deg: float = 0.5,
     pattern: str = "lawnmower",
+    endpoint_weight: float = 1.0,
 ) -> List[PatrolWaypoint]:
     turn_penalty = max(0.0, start_turn_penalty_m_per_deg)
 
@@ -1099,21 +1118,42 @@ def generate_simple_patrol_waypoints(
 
     if pattern == "lawnmower":
         # Force scanline generation
-        candidate_paths = _generate_candidate_paths(
-            polygon_xy=polygon_xy,
-            sweep_angle_deg=sweep_angle_deg,
-            scan_margin=scan_margin,
-            endpoint_margin=endpoint_margin,
-            spacing=spacing,
-        )
-        if not candidate_paths:
-            candidate_paths = _generate_candidate_paths(
+        # Helper: generate paths with a given spacing
+        def _gen_paths(s: float) -> List[List[_LocalPoint]]:
+            sm = max(s * 0.5, boundary_clearance)
+            paths = _generate_candidate_paths(
                 polygon_xy=polygon_xy,
                 sweep_angle_deg=sweep_angle_deg,
-                scan_margin=search_radius,
+                scan_margin=sm,
                 endpoint_margin=endpoint_margin,
-                spacing=spacing,
+                spacing=s,
             )
+            if not paths:
+                paths = _generate_candidate_paths(
+                    polygon_xy=polygon_xy,
+                    sweep_angle_deg=sweep_angle_deg,
+                    scan_margin=s,
+                    endpoint_margin=endpoint_margin,
+                    spacing=s,
+                )
+            return paths
+
+        # Collect all path variants with different scan-line counts
+        all_paths: List[List[_LocalPoint]] = []
+        # Base: use original spacing (from scan_radius or pass_count)
+        all_paths.extend(_gen_paths(spacing))
+        # Explore nearby pass counts to get better endpoint alignment
+        if ownship_point is not None:
+            for delta in (-2, -1, 0, 1, 2):
+                adj = max(2, pass_count + delta)
+                s = max(span_y / max(adj - 1, 1), 1.0)
+                adj_paths = _gen_paths(s)
+                all_paths.extend(adj_paths)
+                for p in adj_paths:
+                    rp = list(reversed(p))
+                    if rp:
+                        all_paths.append(rp)
+        candidate_paths = all_paths
     elif pattern == "concentric":
         # Use concentric loops. Defer rotation/densification until we know
         # the ownship/entry reference so we can implement a per-loop
@@ -1184,29 +1224,34 @@ def generate_simple_patrol_waypoints(
             centroid_local = _LocalPoint(x=sum(xs) / len(xs), y=sum(ys) / len(ys))
             loop_anchor = centroid_local
             prev_raw_loop: Optional[List[_LocalPoint]] = None
-            prev_dense_for_anchor: Optional[List[_LocalPoint]] = None
-            prev_anchor: Optional[_LocalPoint] = None
-            for loop in raw_loops:
+            prev_dense_loop: Optional[List[_LocalPoint]] = None
+            raw_loops_list = list(raw_loops)
+            for idx, loop in enumerate(raw_loops_list):
                 if not loop:
                     continue
-                # --- Anchor transition (compute BEFORE rotating this loop) ---
-                anchor_override: Optional[_LocalPoint] = None
-                if prev_raw_loop is not None and prev_dense_for_anchor is not None and prev_anchor is not None:
+                # --- Anchor transition: extend previous loop's last edge to ---
+                # --- intersect current loop's first edge for smooth join. ---
+                rot_ref = loop_anchor
+                if prev_raw_loop is not None and prev_dense_loop is not None:
                     anchor_pt, cut_idx = _compute_anchor_transition(
-                        prev_raw_loop, loop, prev_dense_for_anchor, prev_anchor)
+                        prev_raw_loop, loop, prev_dense_loop, loop_anchor)
                     if anchor_pt is not None and cut_idx >= 0:
-                        prev_path = prev_dense_for_anchor
-                        modified_prev = prev_path[:cut_idx + 1] + [anchor_pt, prev_path[0]]
-                        prepared_candidate_paths[-1] = modified_prev
-                        anchor_override = anchor_pt
+                        modified = prev_dense_loop[:cut_idx + 1] + [anchor_pt, prev_dense_loop[0]]
+                        prepared_candidate_paths[-1] = modified
+                        # anchor_pt is collinear with V_s→V_{s+1} by
+                        # construction; start the next loop at V_{s+1}.
+                        n_curr = len(loop)
+                        s = min(range(n_curr), key=lambda k:
+                                _distance_m(loop[k].x - loop_anchor.x, loop[k].y - loop_anchor.y))
+                        vb = loop[(s + 1) % n_curr]
+                        rot_ref = vb
 
                 # densify the raw loop, then rotate to start nearest to
-                # loop_anchor (or anchor_override when coming from a transition).
+                # rot_ref (V_{s+1} or loop_anchor).
                 loop_closed = list(loop) + ([loop[0]] if len(loop) >= 1 and _distance_m(loop[0].x - loop[-1].x, loop[0].y - loop[-1].y) > 1e-6 else [])
                 dense_raw = _densify_path(loop_closed or list(loop), max_step_m=dense_step)
                 if not dense_raw:
                     continue
-                rot_ref = anchor_override if anchor_override is not None else loop_anchor
                 dense_rotated = _rotate_path_to_nearest(dense_raw, rot_ref)
                 if len(dense_rotated) >= 1 and _distance_m(dense_rotated[0].x - dense_rotated[-1].x, dense_rotated[0].y - dense_rotated[-1].y) > 1e-6:
                     deduped = _dedupe_path_points(
@@ -1222,19 +1267,9 @@ def generate_simple_patrol_waypoints(
                     required_margin_m=boundary_clearance,
                 )
                 prepared_candidate_paths.append(safe_path if safe_path else dense_rotated_closed)
-                # Save the actual rotation reference for the next iteration's
-                # anchor transition (may differ from loop_anchor when an
-                # anchor_override was applied).
-                prev_anchor = rot_ref
-                # Update anchor to this loop's last distinct point so the
-                # next inner loop starts near where this one ends.
-                # Use the full densified path (not safe-filtered) so that
-                # safe-zone truncation doesn't send the anchor to a wrong edge.
-                last_path = dense_rotated_closed
-                if len(last_path) >= 2:
-                    loop_anchor = last_path[-2]
+                # Save raw and dense for the next loop's anchor transition.
                 prev_raw_loop = loop
-                prev_dense_for_anchor = dense_rotated_closed
+                prev_dense_loop = dense_rotated_closed
     else:
         for path in candidate_paths:
             dense_path = _densify_path(path, max_step_m=dense_step)
@@ -1315,40 +1350,34 @@ def generate_simple_patrol_waypoints(
             # loops transition smoothly (no jumps).
             loop_anchor = anchor_local
             prev_raw_loop: Optional[List[_LocalPoint]] = None
-            prev_dense_for_anchor: Optional[List[_LocalPoint]] = None
-            for loop in loop_iter:
+            prev_dense_loop: Optional[List[_LocalPoint]] = None
+            loops_list = list(loop_iter)
+            for idx, loop in enumerate(loops_list):
                 if not loop:
                     continue
-                # --- Anchor transition (compute BEFORE rotating this loop) ---
-                # Compute the anchor between the PREVIOUS loop and THIS loop,
-                # then use the anchor as the rotation reference for this loop
-                # so it starts nearest to the transition point.
-                anchor_override: Optional[_LocalPoint] = None
-                if prev_raw_loop is not None and prev_dense_for_anchor is not None and prev_anchor is not None:
+                # --- Anchor transition: extend previous loop's last edge to ---
+                # --- intersect current loop's first edge for smooth join. ---
+                rot_ref = loop_anchor
+                if prev_raw_loop is not None and prev_dense_loop is not None:
                     anchor_pt, cut_idx = _compute_anchor_transition(
-                        prev_raw_loop, loop, prev_dense_for_anchor, prev_anchor)
+                        prev_raw_loop, loop, prev_dense_loop, loop_anchor)
                     if anchor_pt is not None and cut_idx >= 0:
-                        prev_path = prev_dense_for_anchor
-                        # For inside-out the innermost loop is tiny (r ≪ sensor
-                        # radius); a full circuit is unnecessary — just start
-                        # at the nearest point and go straight to the anchor.
-                        if use_inside_out and len(prepared_candidate_paths) == 1:
-                            modified_prev = [prev_path[0], anchor_pt, prev_path[0]]
-                        else:
-                            modified_prev = prev_path[:cut_idx + 1] + [anchor_pt, prev_path[0]]
-                        prepared_candidate_paths[-1] = modified_prev
-                        # Override rotation reference so this loop starts at
-                        # the anchor (smooth transition) rather than at the
-                        # previous loop's original tail point.
-                        anchor_override = anchor_pt
+                        modified = prev_dense_loop[:cut_idx + 1] + [anchor_pt, prev_dense_loop[0]]
+                        prepared_candidate_paths[-1] = modified
+                        # anchor_pt is collinear with V_s→V_{s+1} by
+                        # construction; start the next loop at V_{s+1}.
+                        n_curr = len(loop)
+                        s = min(range(n_curr), key=lambda k:
+                                _distance_m(loop[k].x - loop_anchor.x, loop[k].y - loop_anchor.y))
+                        vb = loop[(s + 1) % n_curr]
+                        rot_ref = vb
 
                 # densify the raw loop, then rotate to start nearest to
-                # loop_anchor (or anchor_override when coming from a transition).
+                # rot_ref (V_{s+1} or loop_anchor).
                 loop_closed = list(loop) + ([loop[0]] if len(loop) >= 1 and _distance_m(loop[0].x - loop[-1].x, loop[0].y - loop[-1].y) > 1e-6 else [])
                 dense_raw = _densify_path(loop_closed or list(loop), max_step_m=dense_step)
                 if not dense_raw:
                     continue
-                rot_ref = anchor_override if anchor_override is not None else loop_anchor
                 dense_rotated = _rotate_path_to_nearest(dense_raw, rot_ref)
                 if len(dense_rotated) >= 1 and _distance_m(dense_rotated[0].x - dense_rotated[-1].x, dense_rotated[0].y - dense_rotated[-1].y) > 1e-6:
                     deduped = _dedupe_path_points(
@@ -1364,19 +1393,9 @@ def generate_simple_patrol_waypoints(
                     required_margin_m=boundary_clearance,
                 )
                 prepared_candidate_paths.append(safe_path if safe_path else dense_rotated_closed)
-                # Save the actual rotation reference for the next iteration's
-                # anchor transition (may differ from loop_anchor when an
-                # anchor_override was applied).
-                prev_anchor = rot_ref
-                # Update anchor to this loop's last distinct point so the
-                # next inner loop starts near where this one ends.
-                # Use the full densified path (not safe-filtered) so that
-                # safe-zone truncation doesn't send the anchor to a wrong edge.
-                last_path = dense_rotated_closed
-                if len(last_path) >= 2:
-                    loop_anchor = last_path[-2]
+                # Save raw and dense for the next loop's anchor transition.
                 prev_raw_loop = loop
-                prev_dense_for_anchor = dense_rotated_closed
+                prev_dense_loop = dense_rotated_closed
 
             # Flatten outer->inner loops into selected_path, skipping the
             # closing point of each loop (the first vertex, which appears
@@ -1390,6 +1409,17 @@ def generate_simple_patrol_waypoints(
             # path already has the correct ordering — no second rotation needed.
         else:
             # fallback to previous behaviour for non-stitched candidate paths
+            def _score(points: List[_LocalPoint]) -> float:
+                return _compute_start_cost(
+                    points=points,
+                    ownship_point=ownship_local,
+                    ownship_heading_deg=ownship_heading_deg,
+                    turn_penalty_m_per_deg=turn_penalty,
+                ) + endpoint_weight * _compute_endpoint_distance(
+                    points=points,
+                    target_point=ownship_local,
+                )
+
             if _point_in_polygon((ownship_local.x, ownship_local.y), polygon_xy):
                 start_point = ownship_point
                 inside_start_variants: List[List[_LocalPoint]] = []
@@ -1399,12 +1429,7 @@ def generate_simple_patrol_waypoints(
                     prepared_candidate_paths = inside_start_variants
                 selected_path = min(
                     prepared_candidate_paths,
-                    key=lambda points: _compute_start_cost(
-                        points=points,
-                        ownship_point=ownship_local,
-                        ownship_heading_deg=ownship_heading_deg,
-                        turn_penalty_m_per_deg=turn_penalty,
-                    ),
+                    key=_score,
                 )
             else:
                 entry_point = _build_polygon_entry_point(local_polygon, ref_lon, ref_lat, ownship_point)
@@ -1430,18 +1455,7 @@ def generate_simple_patrol_waypoints(
                             entry_point=entry_local,
                             sweep_angle_deg=sweep_angle_deg,
                         ),
-                        _compute_entry_start_cost(
-                            points=points,
-                            entry_point=entry_local,
-                            approach_heading_deg=approach_heading_deg,
-                            turn_penalty_m_per_deg=turn_penalty,
-                        ),
-                        _compute_start_cost(
-                            points=points,
-                            ownship_point=ownship_local,
-                            ownship_heading_deg=ownship_heading_deg,
-                            turn_penalty_m_per_deg=turn_penalty,
-                        ),
+                        _score(points),
                     ),
                 )
 
@@ -1451,15 +1465,10 @@ def generate_simple_patrol_waypoints(
     if 'used_loops' in locals() and used_loops and selected_path:
         clusters = _compute_uncovered_clusters(polygon_xy, selected_path, spacing)
         for comp in clusters:
-            if len(comp) < 2:
+            if len(comp) < 4:
                 continue
             hull = _convex_hull(comp)
             if len(hull) < 3:
-                # Small area that cannot form a convex hull — directly add
-                # its grid points as waypoints to cover the gap.
-                for pt in comp:
-                    if _point_in_polygon((pt.x, pt.y), polygon_xy):
-                        selected_path.append(pt)
                 continue
             cluster_xy = [(p.x, p.y) for p in hull]
             # choose a sweep angle appropriate for the cluster and generate candidates
@@ -1472,11 +1481,6 @@ def generate_simple_patrol_waypoints(
                 spacing=spacing,
             )
             if not local_candidates:
-                # Cannot generate a path for this cluster — add hull vertices
-                # as fallback waypoints to at least cover the uncovered area.
-                for pt in hull:
-                    if _point_in_polygon((pt.x, pt.y), polygon_xy):
-                        selected_path.append(pt)
                 continue
             fill_path = local_candidates[0]
             dense_fill = _densify_path(fill_path, max_step_m=dense_step)

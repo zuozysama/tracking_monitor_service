@@ -38,7 +38,7 @@ class TrackingFilterConfig(BaseModel):
     value_score_weight: float = 20.0
 
     threat_level_max: float = 5.0
-    default_min_threat_level: int = 2
+    default_min_threat_level: int = 0
     default_target_type_value_score: float = 0.0
     default_military_civil_value_score: float = 0.0
     target_type_value_scores: Dict[int, float] = Field(default_factory=dict)
