@@ -4,7 +4,7 @@ from adapters.dds.base import DdsAdapter
 from domain.dds_contract import OWNSHIP_NAVIGATION_TOPIC, TARGET_PERCEPTION_TOPIC
 from domain.models import OwnShipState, TargetState
 from store.situation_store import situation_store
-from utils.config_utils import get_dds_focus_platform_id
+from utils.config_utils import get_dds_focus_platform_id, get_dds_target_enemy_friend_attrs
 from utils.time_utils import utc_now
 
 _FOCUS_PLATFORM_ID = get_dds_focus_platform_id()
@@ -39,23 +39,18 @@ def _on_ownship_message(data: dict) -> None:
 
 def _on_target_perception_message(data: dict) -> None:
     targets_raw = data.get("targets") or []
+    allowed_enemy_friend_attrs = get_dds_target_enemy_friend_attrs()
     models: list[TargetState] = []
     for item in targets_raw:
         try:
             batch_no = _safe_int(item.get("target_batch_no"), 0)
-
-            # Enemy/friend semantics:
-            #   1 -> red side (own side), do not enter situation targets
-            #   2 -> blue side (enemy side), enter situation targets
-            military_civil_attr = _safe_int(item.get("military_civil_attr"), 0)
-            if military_civil_attr == 1:
+            enemy_friend_attr = _safe_int(item.get("enemy_friend_attr"), 0)
+            if allowed_enemy_friend_attrs is not None and enemy_friend_attr not in allowed_enemy_friend_attrs:
                 continue
-            if military_civil_attr != 2:
-                print(
-                    "[DDS Ingress] warning: unknown military_civil_attr, keeping target for compatibility: "
-                    f"military_civil_attr={military_civil_attr}, "
-                    f"batch_no={batch_no}, target_id={item.get('target_id')}"
-                )
+
+            # Keep military/civil attribute for downstream visibility only.
+            # It must not decide whether a target enters the situation store.
+            military_civil_attr = _safe_int(item.get("military_civil_attr"), 0)
 
             msg_ts = item.get("timestamp") or data.get("timestamp") or utc_now()
             models.append(
@@ -72,7 +67,7 @@ def _on_target_perception_message(data: dict) -> None:
                     target_longitude=float(item.get("target_longitude", 0.0)),
                     target_latitude=float(item.get("target_latitude", 0.0)),
                     target_type_code=item.get("target_type_code"),
-                    enemy_friend_attr=item.get("enemy_friend_attr"),
+                    enemy_friend_attr=enemy_friend_attr,
                     military_civil_attr=military_civil_attr,
                     target_name=item.get("target_name"),
                     threat_level=item.get("threat_level"),

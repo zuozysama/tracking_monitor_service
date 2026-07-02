@@ -87,14 +87,12 @@ def _has_explicit_hard_constraint(constraint: Optional[TargetConstraint]) -> boo
         or constraint.threat_level is not None
         or constraint.target_name not in {None, ""}
         or constraint.enemy_friend_attr is not None
-        or constraint.military_civil_attr is not None
     ):
         return True
 
     if (
         constraint.allowed_target_type_codes
         or constraint.allowed_enemy_friend_attrs
-        or constraint.allowed_military_civil_attrs
     ):
         return True
 
@@ -120,9 +118,11 @@ def _should_apply_default_surface_filter(
 
 def _default_surface_threat_filter(
     target: TargetState,
-    _required_position_attr: int,
+    required_position_attr: int,
     min_threat_level: int,
 ) -> bool:
+    if target.target_position_attr != required_position_attr:
+        return False
     return (target.threat_level or 0) >= min_threat_level
 
 
@@ -182,14 +182,10 @@ def _target_attribute_hard_filter(target: TargetState, constraint: Optional[Targ
         return False
     if constraint.enemy_friend_attr is not None and target.enemy_friend_attr != constraint.enemy_friend_attr:
         return False
-    if constraint.military_civil_attr is not None and target.military_civil_attr != constraint.military_civil_attr:
-        return False
 
     if not _value_matches_allowed(target.target_type_code, constraint.allowed_target_type_codes):
         return False
     if not _value_matches_allowed(target.enemy_friend_attr, constraint.allowed_enemy_friend_attrs):
-        return False
-    if not _value_matches_allowed(target.military_civil_attr, constraint.allowed_military_civil_attrs):
         return False
 
     return True
@@ -344,7 +340,7 @@ def _print_filter_debug(
     print(f"[TargetFilter] sector_skipped_for_identity: {sector_skipped_for_identity}")
     print(
         f"[TargetFilter] default_surface_filter_active: {default_surface_filter_active} "
-        f"(threat_level>={default_min_threat_level})"
+        f"(target_position_attr={default_surface_position_attr}, threat_level>={default_min_threat_level})"
     )
 
     if not candidates:
@@ -467,9 +463,9 @@ def filter_and_select_target(
         ):
             continue
         if default_surface_filter_active and not _default_surface_threat_filter(
-            target=target,
-            required_position_attr=default_surface_position_attr,
-            min_threat_level=default_min_threat_level,
+            target,
+            default_surface_position_attr,
+            default_min_threat_level,
         ):
             continue
         if not _target_identity_hard_filter(target=target, constraint=constraint):

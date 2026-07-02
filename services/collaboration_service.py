@@ -216,7 +216,6 @@ class CollaborationService:
             return False
         if (
             info.enemy_friend_attr is not None
-            or info.military_civil_attr is not None
             or info.target_position_attr is not None
             or info.target_length_m is not None
         ):
