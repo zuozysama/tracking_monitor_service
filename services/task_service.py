@@ -183,8 +183,6 @@ class TaskService:
         preferred_target_type_codes = None
         allowed_enemy_friend_attrs = None
         preferred_enemy_friend_attrs = None
-        allowed_military_civil_attrs = None
-        preferred_military_civil_attrs = None
 
         if target_info.target_type_code is not None:
             allowed_target_type_codes = [target_info.target_type_code]
@@ -192,9 +190,6 @@ class TaskService:
         if target_info.enemy_friend_attr is not None:
             allowed_enemy_friend_attrs = [target_info.enemy_friend_attr]
             preferred_enemy_friend_attrs = [target_info.enemy_friend_attr]
-        if target_info.military_civil_attr is not None:
-            allowed_military_civil_attrs = [target_info.military_civil_attr]
-            preferred_military_civil_attrs = [target_info.military_civil_attr]
 
         return TargetConstraint(
             target_id=target_info.target_id,
@@ -203,14 +198,11 @@ class TaskService:
             threat_level=target_info.threat_level,
             target_name=target_info.target_name,
             enemy_friend_attr=target_info.enemy_friend_attr,
-            military_civil_attr=target_info.military_civil_attr,
             auto_search=True,
             allowed_target_type_codes=allowed_target_type_codes,
             preferred_target_type_codes=preferred_target_type_codes,
             allowed_enemy_friend_attrs=allowed_enemy_friend_attrs,
             preferred_enemy_friend_attrs=preferred_enemy_friend_attrs,
-            allowed_military_civil_attrs=allowed_military_civil_attrs,
-            preferred_military_civil_attrs=preferred_military_civil_attrs,
         )
 
     def terminate_task(self, task_id: str, reason: Optional[str] = None) -> TaskContext:

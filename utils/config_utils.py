@@ -211,6 +211,25 @@ def get_dds_target_stale_timeout_sec() -> float:
     return value
 
 
+def get_dds_target_enemy_friend_attrs() -> set[int] | None:
+    raw = os.getenv("DDS_TARGET_ENEMY_FRIEND_ATTRS")
+    if raw is None:
+        return None
+
+    normalized = raw.replace(";", ",").replace("|", ",").replace(" ", ",")
+    result: set[int] = set()
+    for token in normalized.split(","):
+        text = token.strip()
+        if not text:
+            continue
+        try:
+            result.add(int(text))
+        except Exception:
+            continue
+
+    return result or None
+
+
 def get_patrol_num_passes() -> int:
     return _get_env_int("PATROL_NUM_PASSES", 4, min_value=2)
 
