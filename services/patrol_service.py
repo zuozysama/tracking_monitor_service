@@ -12,6 +12,16 @@ from utils.point_timing_log import print_point_generation_timing
 from algorithms.patrol_planner import generate_simple_patrol_waypoints
 
 
+def _waypoints_signature(waypoints: list) -> str:
+    """Build a short signature for waypoints to detect actual changes."""
+    if not waypoints:
+        return "empty"
+    # Use first, last, and count as a lightweight signature
+    first = waypoints[0]
+    last = waypoints[-1]
+    return f"cnt={len(waypoints)}_first=({first.longitude:.4f},{first.latitude:.4f})_last=({last.longitude:.4f},{last.latitude:.4f})"
+
+
 class PatrolService:
     def refresh_result(self, task: TaskContext) -> None:
         if task.status not in {TaskStatus.RUNNING, TaskStatus.WAITING_TARGET}:
@@ -54,13 +64,17 @@ class PatrolService:
             point_type = "patrol_waypoints"
 
         point_generated_time = utc_now()
-        print_point_generation_timing(
-            task=task,
-            point_generation_start_time=point_generation_start_time,
-            point_generated_time=point_generated_time,
-            point_type=point_type,
-            point_count=len(waypoints),
-        )
+        _sig = _waypoints_signature(waypoints)
+        _prev_sig = getattr(task, "_patrol_waypoints_signature", None)
+        if _sig != _prev_sig:
+            task._patrol_waypoints_signature = _sig
+            print_point_generation_timing(
+                task=task,
+                point_generation_start_time=point_generation_start_time,
+                point_generated_time=point_generated_time,
+                point_type=point_type,
+                point_count=len(waypoints),
+            )
 
         task.execution_phase = "patrolling"
         task.patrol_waypoints = waypoints

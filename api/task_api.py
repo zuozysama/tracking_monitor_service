@@ -13,6 +13,7 @@ from domain.models import (
 from domain.response import ok
 from services.task_service import TaskConflictError, task_service
 from utils.geo_utils import haversine_distance_m
+from utils.terminal import print_received_task
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -65,15 +66,8 @@ def _build_preplan_result(task: TaskContext) -> Optional[dict]:
 @router.post("/tasks")
 def create_task(req: CreateTaskRequest, request: Request):
     try:
+        print_received_task(req.model_dump(mode="json"))
         task = task_service.create_task(req)
-        logger.info(
-            "task.create.accepted path=%s client=%s task_id=%s task_type=%s payload=%s",
-            request.url.path,
-            request.client.host if request.client else "-",
-            task.task_id,
-            task.task_type,
-            req.model_dump(mode="json"),
-        )
         payload = {
             "task_id": task.task_id,
             "task_type": task.task_type,

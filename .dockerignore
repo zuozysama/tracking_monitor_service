@@ -9,6 +9,7 @@ env/
 artifacts/
 tests/
 examples/
+win_test/
 *.log
 *.pdf
 *.jpg

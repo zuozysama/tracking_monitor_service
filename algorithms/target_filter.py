@@ -2,6 +2,11 @@ from math import atan2, cos, degrees, radians, sin
 from typing import List, Optional, Tuple
 
 from domain.models import GeoPoint, OwnShipState, TargetConstraint, TargetState, TaskArea
+from utils.terminal import console, info, success
+
+# Throttle: only print target filter debug every N calls
+_TARGET_FILTER_PRINT_INTERVAL = 20
+_target_filter_counter = 0
 from utils.config_utils import (
     get_tracking_default_min_threat_level,
     get_tracking_default_target_type_value_score,
@@ -335,46 +340,35 @@ def _print_filter_debug(
     if not is_tracking_filter_debug_enabled():
         return
 
-    print("\n[TargetFilter] candidate ranking:")
-    print(f"[TargetFilter] range_window: min={min_target_range_m:.2f} m, max={max_target_range_m:.2f} m")
-    print(f"[TargetFilter] sector_skipped_for_identity: {sector_skipped_for_identity}")
-    print(
-        f"[TargetFilter] default_surface_filter_active: {default_surface_filter_active} "
-        f"(target_position_attr={default_surface_position_attr}, threat_level>={default_min_threat_level})"
-    )
+    # Throttle: only print every N calls
+    global _target_filter_counter
+    _target_filter_counter += 1
+    if _target_filter_counter < _TARGET_FILTER_PRINT_INTERVAL:
+        return
+    _target_filter_counter = 0
+
+    console.print()
+    info("TargetFilter", "candidate ranking", range_min=f"{min_target_range_m:.0f}m", range_max=f"{max_target_range_m:.0f}m")
+    info("TargetFilter", f"sector_skipped={sector_skipped_for_identity}  surface_filter_active={default_surface_filter_active} (target_position_attr={default_surface_position_attr}, threat_level>={default_min_threat_level})")
 
     if not candidates:
-        print("[TargetFilter] no valid candidates")
+        info("TargetFilter", "no valid candidates")
         return
 
-    print(f"[TargetFilter] current_target_id: {current_target_id}")
-    print(f"[TargetFilter] current_target_batch_no: {current_target_batch_no}")
+    info("TargetFilter", f"current_target_id={current_target_id}  current_target_batch_no={current_target_batch_no}")
+
     for item in candidates:
-        distance_text = "N/A" if item["distance_m"] is None else f'{item["distance_m"]:.2f} m'
-        bearing_text = "N/A" if item["bearing_to_target_deg"] is None else f'{item["bearing_to_target_deg"]:.2f} deg'
-        relative_bearing_text = "N/A" if item["relative_bearing_deg"] is None else f'{item["relative_bearing_deg"]:.2f} deg'
-        print(
-            f'  - target_id={item["target"].target_id}, '
-            f'target_type_code={item["target"].target_type_code}, '
-            f'target_position_attr={item["target"].target_position_attr}, '
-            f'target_length_m={item["target"].target_length_m}, '
-            f'enemy_friend_attr={item["target"].enemy_friend_attr}, '
-            f'military_civil_attr={item["target"].military_civil_attr}, '
-            f'threat_level={item["target"].threat_level}, '
-            f'value_score={item["value_score"]:.3f}, '
-            f'rank_key=(threat={item["rank_threat_level"]}, '
-            f'value={item["rank_value_score"]:.3f}, '
-            f'length={item["rank_target_length_m"]:.3f}, '
-            f'distance={distance_text}), '
-            f'distance={distance_text}, '
-            f'bearing_to_target={bearing_text}, '
-            f'relative_bearing={relative_bearing_text}'
-        )
+        t = item["target"]
+        dist = "N/A" if item["distance_m"] is None else f'{item["distance_m"]:.1f}m'
+        bear = "N/A" if item["bearing_to_target_deg"] is None else f'{item["bearing_to_target_deg"]:.1f}deg'
+        info("TargetFilter", f"candidate: id={t.target_id} type={t.target_type_code} "
+             f"threat={t.threat_level} value={item['value_score']:.3f} "
+             f"dist={dist} bearing={bear}")
 
     if selected_target is not None:
-        print(f"[TargetFilter] selected target: {selected_target.target_id}")
+        success("TargetFilter", f"selected target: {selected_target.target_id}")
     else:
-        print("[TargetFilter] selected target: None")
+        info("TargetFilter", "selected target: None")
 
 
 def _apply_hysteresis(

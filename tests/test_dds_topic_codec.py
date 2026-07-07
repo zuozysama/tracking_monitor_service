@@ -1,7 +1,7 @@
 import struct
 import unittest
 
-from adapters.dds.topic_codec import decode_topic_payload, encode_topic_payload
+from adapters.dds.topic_codec import TARGET_TRACK_ALL_FIELDS, decode_topic_payload, encode_topic_payload
 from domain.dds_contract import (
     ELECTRO_OPTICAL_LINKAGE_CMD_TOPIC,
     MANUAL_SELECTION_REQUEST_TOPIC,
@@ -339,6 +339,40 @@ class TopicCodecDecodeTestCase(unittest.TestCase):
         decoded = decode_topic_payload(TARGET_PERCEPTION_TOPIC, (b"\xAA" * 16) + body)
         self.assertIn("decode_error", decoded)
         self.assertIn("2 + N*90", decoded["decode_error"])
+
+    def test_decode_target_track_all_uses_bd_batch_as_target_batch_no(self):
+        payload = bytearray(369)
+        struct.pack_into(">I", payload, 0, 0)
+        struct.pack_into(">B", payload, 4, 1)
+        struct.pack_into(">H", payload, 5, 369)
+        struct.pack_into(">B", payload, 7, 1)
+        struct.pack_into(">I", payload, 8, 7)
+        struct.pack_into(">B", payload, 12, 0)
+        struct.pack_into(">I", payload, 13, 1700000000)
+        struct.pack_into(">I", payload, 17, 123)
+        payload[21:25] = bytes.fromhex("00001001")
+
+        offset = 0
+        field_offsets = {}
+        for name, byte_size, _field_type, _scale in TARGET_TRACK_ALL_FIELDS:
+            field_offsets[name] = offset
+            offset += byte_size
+
+        data_source_offset = field_offsets["data_source"]
+        struct.pack_into(">I", payload, data_source_offset, 2001)
+        bd_batch_offset = field_offsets["bd_target_batch_no"]
+        struct.pack_into(">I", payload, bd_batch_offset, 2002)
+
+        decoded = decode_topic_payload(TARGET_PERCEPTION_TOPIC, bytes(payload))
+
+        self.assertEqual(decoded["format"], "target_track_all_369_to_target_perception")
+        target = decoded["targets"][0]
+        self.assertEqual(target["target_batch_no"], 2002)
+        self.assertEqual(target["target_id"], "target-2002")
+        self.assertEqual(target["composite_track_batch_no"], 1001)
+        self.assertEqual(target["bd_target_batch_no"], 2002)
+        self.assertEqual(decoded["target_track_all_fields"]["composite_track_batch_no"], 1001)
+        self.assertEqual(decoded["target_track_all_fields"]["bd_target_batch_no"], 2002)
 
     def test_encode_task_update_21_plus_100(self):
         body = encode_topic_payload(

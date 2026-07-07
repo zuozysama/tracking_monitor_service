@@ -475,13 +475,20 @@ class TrackingService:
             ownship=ownship,
         )
         point_generated_time = utc_now()
-        print_point_generation_timing(
-            task=task,
-            point_generation_start_time=point_generation_start_time,
-            point_generated_time=point_generated_time,
-            point_type=f"{mode.value}_tracking_point",
-            point_count=1,
-        )
+        # Throttle timing log: only print when recommended_point actually changes
+        _prev_lon = getattr(task, "_tracking_point_generation_start_time_lon", None)
+        _prev_lat = getattr(task, "_tracking_point_generation_start_time_lat", None)
+        _point_changed = (_prev_lon != point.longitude or _prev_lat != point.latitude)
+        if _point_changed:
+            task._tracking_point_generation_start_time_lon = point.longitude
+            task._tracking_point_generation_start_time_lat = point.latitude
+            print_point_generation_timing(
+                task=task,
+                point_generation_start_time=point_generation_start_time,
+                point_generated_time=point_generated_time,
+                point_type=f"{mode.value}_tracking_point",
+                point_count=1,
+            )
 
         if mode == TrackingMode.ESCORT:
             rel_range_m = get_tracking_escort_distance_m()

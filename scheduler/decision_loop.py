@@ -3,6 +3,7 @@ import time
 
 from store.task_store import task_store
 from services.task_service import task_service
+from utils.terminal import error
 
 
 class DecisionLoop:
@@ -30,7 +31,7 @@ class DecisionLoop:
                     task_service.tick_task(task.task_id)
             except Exception as e:
                 # Keep loop alive even if a single iteration fails.
-                print(f"[DecisionLoop] error: {e}")
+                error("DecisionLoop", f"{e}")
 
             time.sleep(self.interval_sec)
 

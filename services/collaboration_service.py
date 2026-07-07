@@ -47,6 +47,7 @@ from utils.config_utils import (
     get_tracking_arrival_tolerance_m,
 )
 from utils.geo_utils import haversine_distance_m
+from utils.terminal import info, success, warning as log_warning, print_publish_dds, print_dispatch_to, print_dispatch_response, print_rule
 from utils.time_utils import utc_now
 
 dds_adapter = get_dds_adapter()
@@ -145,6 +146,17 @@ class CollaborationService:
 
     def _publish_dds(self, topic: str, payload: dict) -> None:
         dds_adapter.publish(topic=topic, payload=payload)
+        # Short topic label for terminal display
+        _label_map = {
+            TASK_UPDATE_TOPIC: "任务更新",
+            PREPLAN_RESULT_TOPIC: "预规划结果",
+            MANUAL_SELECTION_REQUEST_TOPIC: "人工选择",
+            MANUAL_SWITCH_REQUEST_TOPIC: "人工切换",
+            ELECTRO_OPTICAL_LINKAGE_CMD_TOPIC: "光电链路",
+            STREAM_MEDIA_PARAM_TOPIC: "媒体参数",
+        }
+        label = _label_map.get(topic, topic.split(".")[-1] if "." in topic else topic)
+        print_publish_dds(label, payload)
 
     def _resolve_result_type(self, task: TaskContext) -> Optional[str]:
         if task.patrol_plan_output is not None:
@@ -302,10 +314,7 @@ class CollaborationService:
         task.manual_selection_deadline = now + timedelta(seconds=payload.timeout_sec)
         task.manual_selection_candidate_count = len(payload.candidate_targets)
         task.manual_selection_last_countdown_sec = None
-        print(
-            f"[ManualSelection] task={task.task_id} request_sent candidates={task.manual_selection_candidate_count} "
-            f"timeout_sec={payload.timeout_sec}"
-        )
+        info("ManualSelection", f"task={task.task_id} request_sent", candidates=task.manual_selection_candidate_count, timeout_sec=payload.timeout_sec)
         task_store.update_task(task)
 
     def _update_manual_selection_timeout(self, task: TaskContext) -> None:
@@ -317,7 +326,7 @@ class CollaborationService:
         if now < task.manual_selection_deadline:
             remaining_sec = max(0, int((task.manual_selection_deadline - now).total_seconds()))
             if task.manual_selection_last_countdown_sec != remaining_sec:
-                print(f"[ManualSelection] task={task.task_id} countdown={remaining_sec}s")
+                info("ManualSelection", f"task={task.task_id} countdown", remaining_sec=f"{remaining_sec}s")
                 task.manual_selection_last_countdown_sec = remaining_sec
                 task_store.update_task(task)
             return
@@ -325,7 +334,7 @@ class CollaborationService:
         task.manual_selection_pending = False
         task.manual_selection_last_countdown_sec = None
         task.update_time = now
-        print(f"[ManualSelection] task={task.task_id} timeout reached, keep highest-rank target")
+        warning("ManualSelection", f"task={task.task_id} timeout reached, keep highest-rank target")
         task_store.update_task(task)
 
     def _build_manual_switch_candidates(self, task: TaskContext) -> list[TargetInfo]:
@@ -418,10 +427,7 @@ class CollaborationService:
         task.manual_switch_deadline = now + timedelta(seconds=payload.timeout_sec)
         task.manual_switch_candidate_count = len(payload.new_candidate_targets)
         task.manual_switch_last_countdown_sec = None
-        print(
-            f"[ManualSwitch] task={task.task_id} request_sent current={payload.current_target_id} "
-            f"candidates={task.manual_switch_candidate_count} timeout_sec={payload.timeout_sec}"
-        )
+        info("ManualSwitch", f"task={task.task_id} request_sent", current=payload.current_target_id, candidates=task.manual_switch_candidate_count, timeout_sec=payload.timeout_sec)
         task_store.update_task(task)
 
     def _update_manual_switch_timeout(self, task: TaskContext) -> None:
@@ -434,7 +440,7 @@ class CollaborationService:
         if now < task.manual_switch_deadline:
             remaining_sec = max(0, int((task.manual_switch_deadline - now).total_seconds()))
             if task.manual_switch_last_countdown_sec != remaining_sec:
-                print(f"[ManualSwitch] task={task.task_id} countdown={remaining_sec}s")
+                info("ManualSwitch", f"task={task.task_id} countdown", remaining_sec=f"{remaining_sec}s")
                 task.manual_switch_last_countdown_sec = remaining_sec
                 task_store.update_task(task)
             return
@@ -442,7 +448,7 @@ class CollaborationService:
         task.manual_switch_pending = False
         task.manual_switch_last_countdown_sec = None
         task.update_time = now
-        print(f"[ManualSwitch] task={task.task_id} timeout reached, keep current target")
+        warning("ManualSwitch", f"task={task.task_id} timeout reached, keep current target")
         task_store.update_task(task)
 
     def _build_plan_signature_payload(self, task: TaskContext) -> tuple[Optional[str], Optional[dict]]:
@@ -736,7 +742,30 @@ class CollaborationService:
             else autonomy_client.post_tracking_plan(payload_obj)
         )
 
+        # Print the HTTP response status from autonomy module
+        module_name = "自主模块(巡逻)" if isinstance(payload_obj, AutonomyPatrolDispatch) else "自主模块(跟踪)"
+        print_dispatch_response(module_name, dispatch_result)
+
         if self._is_autonomy_dispatch_success(dispatch_result):
+            # Print dispatch success summary
+            if isinstance(payload_obj, AutonomyPatrolDispatch):
+                wpt_count = len(payload_obj.params.waypoints) if payload_obj.params and hasattr(payload_obj.params, "waypoints") and payload_obj.params.waypoints else 0
+                print_dispatch_to("自主模块(巡逻)", {
+                    "task_id": payload_obj.task_id,
+                    "waypoint_count": wpt_count,
+                    "patrol_pattern": payload_obj.patrol_pattern or "-",
+                    "expected_speed": payload_obj.params.max_speed if payload_obj.params else "?",
+                })
+            else:
+                params = payload_obj.params if hasattr(payload_obj, "params") else None
+                print_dispatch_to("自主模块(跟踪)", {
+                    "task_id": payload_obj.task_id,
+                    "target_batch_no": getattr(params, "target_batch_no", None) if params else None,
+                    "rel_range_m": getattr(params, "rel_range_m", None) if params else None,
+                    "relative_bearing_deg": getattr(params, "relative_bearing_deg", None) if params else None,
+                    "expected_speed": getattr(params, "max_speed", None) if params else None,
+                })
+
             task.last_autonomy_dispatch_signature = signature
             task.autonomy_retry_signature = None
             task.autonomy_retry_attempts = 0
@@ -774,6 +803,11 @@ class CollaborationService:
             return
 
         optical_linkage_client.post_command(task.task_id, payload)
+        print_dispatch_to("光电模块", {
+            "task_id": task.task_id,
+            "task_status": task_status,
+            "target_batch_no": target_batch_no,
+        })
         self._publish_dds(
             ELECTRO_OPTICAL_LINKAGE_CMD_TOPIC,
             payload.model_dump(mode="json"),
@@ -827,32 +861,46 @@ class CollaborationService:
             if elapsed is None or elapsed >= media.photo_interval_sec:
                 photo_result = media_client.capture_photo(task.task_id)
                 task.last_photo_time = utc_now()
-                self._publish_dds(
-                    STREAM_MEDIA_PARAM_TOPIC,
-                    self._build_stream_media_payload(
-                        task=task,
-                        media=media,
-                        media_result=photo_result,
-                        media_event_type=1,
-                        media_type=1,
-                    ),
+                photo_payload = self._build_stream_media_payload(
+                    task=task,
+                    media=media,
+                    media_result=photo_result,
+                    media_event_type=1,
+                    media_type=1,
                 )
+                self._publish_dds(STREAM_MEDIA_PARAM_TOPIC, photo_payload)
+                _photo_count = getattr(task, "_media_photo_count", 0) + 1
+                task._media_photo_count = _photo_count
+                if _photo_count <= 2:
+                    info("Media", f"task={task.task_id} 拍照完成",
+                         file=photo_payload.get("file_name", "-"),
+                         size_kb=photo_payload.get("file_size_kb", 0))
+                elif _photo_count % 10 == 0:
+                    info("Media", f"task={task.task_id} 拍照第{_photo_count}次",
+                         interval="5s")
 
         if media.video_enabled:
             elapsed = _seconds_since(task.last_video_time)
             if elapsed is None or elapsed >= media.video_interval_sec:
                 video_result = media_client.record_video(task.task_id, media.video_duration_sec)
                 task.last_video_time = utc_now()
-                self._publish_dds(
-                    STREAM_MEDIA_PARAM_TOPIC,
-                    self._build_stream_media_payload(
-                        task=task,
-                        media=media,
-                        media_result=video_result,
-                        media_event_type=2,
-                        media_type=2,
-                    ),
+                video_payload = self._build_stream_media_payload(
+                    task=task,
+                    media=media,
+                    media_result=video_result,
+                    media_event_type=2,
+                    media_type=2,
                 )
+                self._publish_dds(STREAM_MEDIA_PARAM_TOPIC, video_payload)
+                _video_count = getattr(task, "_media_video_count", 0) + 1
+                task._media_video_count = _video_count
+                if _video_count <= 2:
+                    info("Media", f"task={task.task_id} 录像完成",
+                         file=video_payload.get("file_name", "-"),
+                         duration_sec=video_payload.get("video_duration_sec", 0))
+                elif _video_count % 10 == 0:
+                    info("Media", f"task={task.task_id} 录像第{_video_count}次",
+                         interval="10s")
 
         task_store.update_task(task)
 
@@ -919,6 +967,11 @@ class CollaborationService:
         task_store.update_task(task)
 
     def on_task_finished(self, task: TaskContext) -> None:
+        finish_reason = getattr(task, "finish_reason", None)
+        reason_str = finish_reason.value if hasattr(finish_reason, "value") else str(finish_reason or "-")
+        print_rule(style="green")
+        info("TaskEnd", f"task={task.task_id} 结束", reason=reason_str,
+             phase=getattr(task, "execution_phase", "-"))
         if task.linkage_param is not None and task.linkage_param.enable_optical:
             self._dispatch_optical_linkage_if_changed(task, task_status=2)
 
