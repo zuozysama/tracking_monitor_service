@@ -19,6 +19,7 @@ from api.task_api import router as task_router
 from domain.response import ok
 from scheduler.decision_loop import decision_loop
 from services.dds_ingress_service import register_default_subscriptions
+from utils.terminal import console, setup_logging, info
 
 logger = logging.getLogger(__name__)
 
@@ -64,14 +65,21 @@ def _resolve_swagger_assets_dir() -> Optional[Path]:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    setup_logging(level="INFO")
+    console.print()
+    console.print("[bold green]╔══════════════════════════════════════════════╗")
+    console.print("[bold green]║       Tracking Monitor Service  v0.4.0       ║")
+    console.print("[bold green]╚══════════════════════════════════════════════╝")
+    console.print()
+
     dds_adapter = get_dds_adapter()
     register_default_subscriptions(dds_adapter)
     decision_loop.start()
-    print("[App] decision loop started")
+    info("App", "decision loop started")
     yield
     decision_loop.stop()
     get_dds_adapter().stop()
-    print("[App] decision loop stopped")
+    info("App", "decision loop stopped")
 
 
 app = FastAPI(

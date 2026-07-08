@@ -32,6 +32,7 @@ from utils.config_utils import (
     get_tracking_manual_switch_timeout_sec,
 )
 from utils.region_utils import is_point_in_task_area
+from utils.terminal import info
 from utils.time_utils import utc_now
 
 
@@ -227,6 +228,9 @@ class TaskService:
         task.update_time = task.end_time
         task.execution_phase = "completed"
         task_store.update_task(task)
+        from utils.terminal import print_rule
+        print_rule(style="yellow")
+        info("TaskCmd", f"task={task.task_id} 终止", reason=reason or "-")
 
         collaboration_service.on_task_finished(task)
         return task

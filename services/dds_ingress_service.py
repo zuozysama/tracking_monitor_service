@@ -5,9 +5,16 @@ from domain.dds_contract import OWNSHIP_NAVIGATION_TOPIC, TARGET_PERCEPTION_TOPI
 from domain.models import OwnShipState, TargetState
 from store.situation_store import situation_store
 from utils.config_utils import get_dds_focus_platform_id, get_dds_target_enemy_friend_attrs
+from utils.terminal import print_ownship_situation, print_targets_situation
 from utils.time_utils import utc_now
 
 _FOCUS_PLATFORM_ID = get_dds_focus_platform_id()
+
+# Throttle counters: only print situation every N updates to avoid scroll flood.
+_OWNship_PRINT_INTERVAL = 20
+_TARGET_PRINT_INTERVAL = 10
+_ownship_counter = 0
+_target_counter = 0
 
 
 def _safe_int(value, default: int = 0) -> int:
@@ -18,6 +25,7 @@ def _safe_int(value, default: int = 0) -> int:
 
 
 def _on_ownship_message(data: dict) -> None:
+    global _ownship_counter
     try:
         platform_id = _safe_int(data.get("platform_id", 0), 0)
         if platform_id != _FOCUS_PLATFORM_ID:
@@ -33,6 +41,11 @@ def _on_ownship_message(data: dict) -> None:
             timestamp=msg_ts,
         )
         situation_store.update_ownship(model)
+
+        _ownship_counter += 1
+        if _ownship_counter >= _OWNship_PRINT_INTERVAL:
+            _ownship_counter = 0
+            print_ownship_situation(model)
     except Exception:
         return
 
@@ -86,7 +99,16 @@ def _on_target_perception_message(data: dict) -> None:
 
     # Unified dynamic retention:
     # always upsert incoming targets and prune stale unseen targets by timeout.
-    situation_store.update_targets(models, revision=revision, source_id=source_id)
+    result = situation_store.update_targets(models, revision=revision, source_id=source_id)
+
+    global _target_counter
+    if result.accepted and models:
+        _target_counter += 1
+        if _target_counter >= _TARGET_PRINT_INTERVAL:
+            _target_counter = 0
+            snapshot = situation_store.get_situation_snapshot()
+            all_targets = snapshot.get("targets", [])
+            print_targets_situation(len(all_targets), all_targets)
 
 
 def register_default_subscriptions(dds_adapter: DdsAdapter) -> None:

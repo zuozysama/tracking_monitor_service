@@ -112,7 +112,7 @@ TARGET_TRACK_ALL_FIELDS = [
     ("reserved_48", 20, "raw", 1.0),
     ("reserved_49", 12, "raw", 1.0),
     ("reserved_50", 4, "raw", 1.0),
-    ("bd_target_batch_no", 4, "bcd", 1.0),
+    ("bd_target_batch_no", 4, "uint32", 1.0),
     ("ais_target_batch_no_reserved", 4, "raw", 1.0),
     ("adsb_target_batch_no_reserved", 4, "raw", 1.0),
     ("navigation_ld1_target_batch_no", 4, "raw", 1.0),
@@ -516,7 +516,9 @@ def _decode_target_track_all_as_target_perception(topic: str, body: bytes) -> di
         control_fields = control_word["fields"]
 
     timestamp = _target_track_all_timestamp(fields)
-    batch_no = _safe_int_value(fields.get("composite_track_batch_no"), 0)
+    composite_batch_no = _safe_int_value(fields.get("composite_track_batch_no"), 0)
+    bd_batch_no = _safe_int_value(fields.get("bd_target_batch_no"), 0)
+    batch_no = bd_batch_no
     source_platform_id = _safe_int_value(fields.get("data_source"), 0)
     target_type_code = _optional_int_value(
         _first_present(
@@ -534,6 +536,8 @@ def _decode_target_track_all_as_target_perception(topic: str, body: bytes) -> di
         "source_platform_id": source_platform_id,
         "target_id": f"target-{batch_no}",
         "target_batch_no": batch_no,
+        "composite_track_batch_no": composite_batch_no,
+        "bd_target_batch_no": bd_batch_no,
         "target_position_attr": _optional_int_value(control_fields.get("track_status")),
         "target_length_m": _safe_float_value(fields.get("image_target_length"), 0.0),
         "target_width_m": _safe_float_value(fields.get("image_target_width"), 0.0),

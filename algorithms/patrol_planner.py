@@ -16,10 +16,6 @@ class _LocalPoint:
     y: float
 
 
-def _normalize_pass_count(num_passes: int) -> int:
-    return max(2, num_passes)
-
-
 def _project_to_local(points: List[GeoPoint]) -> Tuple[List[_LocalPoint], float, float]:
     ref_lat = sum(point.latitude for point in points) / len(points)
     ref_lon = sum(point.longitude for point in points) / len(points)
@@ -759,6 +755,36 @@ def _build_inside_start_variants(points: List[_LocalPoint]) -> List[List[_LocalP
     return [forward, backward]
 
 
+def _build_nearest_cut_variants(
+    points: List[_LocalPoint],
+    ownship_local: _LocalPoint,
+) -> List[List[_LocalPoint]]:
+    """生成从最接近本船的顶点处切开的 lawnmower 变体。
+
+    找到路径上离本船最近的顶点，将路径从此处切开：
+      切后路径 = path[nearest:] + path[:nearest]
+    本船先走到最近顶点，然后顺序覆盖从那里到路径终点的部分，
+    最后跳回路径起点覆盖到切点前。
+
+    这种切分会导致一次跨扫描线的大跳跃（从原路径末尾跳到开头），
+    但保证了本船从最近点开始覆盖，而非先跑到多边形边界才开工。
+    """
+    if not points or len(points) < 2:
+        return []
+
+    nearest_idx = min(
+        range(len(points)),
+        key=lambda k: _distance_m(points[k].x - ownship_local.x, points[k].y - ownship_local.y),
+    )
+
+    if nearest_idx == 0:
+        return [list(points)]
+
+    # 切开：nearest → end, 然后 start → nearest-1
+    cut_path = points[nearest_idx:] + points[:nearest_idx]
+    return [cut_path]
+
+
 def _generate_candidate_paths(
     polygon_xy: List[Tuple[float, float]],
     sweep_angle_deg: float,
@@ -1023,6 +1049,220 @@ def _rotate_path_to_nearest(path: List[_LocalPoint], ref: _LocalPoint) -> List[_
     return path[best_i:] + path[:best_i]
 
 
+def _is_scanline_segment(
+    a: _LocalPoint,
+    b: _LocalPoint,
+    sweep_angle_deg: float,
+    dy_threshold_ratio: float = 0.1,
+) -> bool:
+    """Return True if segment AB is a scanline (approximately horizontal in rotated coords).
+
+    In the rotated coordinate system (by -sweep_angle_deg), scanlines have
+    negligible y-difference compared to their x-span.  Connectors (transitions
+    between scanlines) have significant y-difference.
+    """
+    rx1, ry1 = _rotate_xy(a.x, a.y, -sweep_angle_deg)
+    rx2, ry2 = _rotate_xy(b.x, b.y, -sweep_angle_deg)
+    dx = abs(rx2 - rx1)
+    dy = abs(ry2 - ry1)
+    if dx < 1e-6:
+        return False
+    return dy <= dx * dy_threshold_ratio
+
+
+def _split_lawnmower_path_at_ownship(
+    path: List[_LocalPoint],
+    ownship_local: _LocalPoint,
+    search_radius: float,
+    sweep_angle_deg: float,
+) -> Optional[List[_LocalPoint]]:
+    """Split a corner-only lawnmower path at ownship, using gravitational fields.
+
+    The input *path* must already be simplified to corners via
+    ``_simplify_collinear_path``.  Each corner is a scanline endpoint.
+
+    Algorithm (inside-area lawnmower only):
+
+    0.  **Scanline-band check** — compute ``y_min`` / ``y_max`` of all
+        corners in the rotated (scanline-aligned) frame.  If ownship's
+        rotated-y lies outside ``[y_min, y_max]``, return the full
+        unsplit path so the vessel covers every scanline.
+
+    1.  **Gravitational field check** — for each corner *C*, test whether
+        ``dist(ownship, C) < search_radius + 200 m``.  If yes, *C* becomes
+        the upper-half start (point 0).
+
+    2.  **Otherwise (projection)** — project ownship onto the nearest
+        **scanline** segment (connectors are ignored).  The projection
+        point becomes point 0.
+
+    3.  **Upper half** — ``[point_0] + path[corner_after :]``, traversed
+        forward to the end of the path.
+
+    4.  **Lower half start** — a point on the *same* scanline, offset from
+        point 0 by ``1 × search_radius`` in the direction **opposite** to
+        the scanline's forward direction (e.g. if the scanline goes
+        left→right, the offset is to the left).
+
+    5.  **Lower half body** — from the lower-start, the vessel first moves
+        to the *nearest* endpoint of that scanline, then traverses the
+        remaining corners backward to path[0].
+
+    Returns ``None`` when no scanline segment can be found.
+    """
+    if not path or len(path) < 2:
+        return list(path) if path else None
+
+    n = len(path)
+    gravitational_radius = search_radius * 1.2
+
+    # ── Step 0: outside scanline band → go to nearest endpoint ───────
+    # Compute y range of all corners in the rotated (scanline-aligned)
+    # coordinate system.  If ownship lies above or below the entire
+    # scanline band, skip the split logic and simply route to the
+    # nearest corner, then linear‑traverse the unsplit path from there.
+    rotated_ys = [_rotate_xy(p.x, p.y, -sweep_angle_deg)[1] for p in path]
+    own_ry = _rotate_xy(ownship_local.x, ownship_local.y, -sweep_angle_deg)[1]
+    y_min = min(rotated_ys)
+    y_max = max(rotated_ys)
+
+    if own_ry < y_min or own_ry > y_max:
+        # Outside the scanline band — skip split and return the full
+        # unsplit path.  The vessel will transit from ownship to path[0]
+        # and then linear‑traverse every scanline without missing any.
+        return list(path)
+
+    # ── Step 1: gravitational field ──────────────────────────────────
+    grav_corner_idx: int = -1
+    grav_best_dist = float("inf")
+    for i in range(n):
+        d = _distance_m(path[i].x - ownship_local.x, path[i].y - ownship_local.y)
+        if d < gravitational_radius and d < grav_best_dist:
+            grav_best_dist = d
+            grav_corner_idx = i
+
+    if grav_corner_idx >= 0:
+        # ── Gravitational case ───────────────────────────────────────
+        corner = path[grav_corner_idx]
+        # upper half: corner → forward to end
+        upper_half = [corner] + list(path[grav_corner_idx + 1:])
+
+        # Find the scanline that contains this corner (for direction)
+        _, sl_dir_vec = _find_scanline_from_corner(
+            path, grav_corner_idx, sweep_angle_deg
+        )
+        ux, uy = sl_dir_vec
+
+        # lower_start: same scanline, 1×search_radius opposite to scanline dir
+        lower_start = _LocalPoint(
+            x=corner.x - ux * search_radius,
+            y=corner.y - uy * search_radius,
+        )
+
+        # lower half: lower_start → backward linear traversal of corners
+        lower_half = [lower_start]
+        for i in range(grav_corner_idx - 1, -1, -1):
+            lower_half.append(path[i])
+
+        return upper_half + lower_half
+
+    # ── Step 2: projection onto nearest scanline segment ─────────────
+    best_seg_idx = -1
+    best_t = 0.0
+    best_dist = float("inf")
+
+    for i in range(n - 1):
+        a, b = path[i], path[i + 1]
+        if not _is_scanline_segment(a, b, sweep_angle_deg):
+            continue
+        dx = b.x - a.x
+        dy = b.y - a.y
+        seg_len_sq = dx * dx + dy * dy
+        if seg_len_sq <= 1e-12:
+            continue
+        t = ((ownship_local.x - a.x) * dx + (ownship_local.y - a.y) * dy) / seg_len_sq
+        t = max(0.0, min(1.0, t))
+        proj = _LocalPoint(x=a.x + t * dx, y=a.y + t * dy)
+        dist = _distance_m(proj.x - ownship_local.x, proj.y - ownship_local.y)
+        if dist < best_dist:
+            best_dist = dist
+            best_seg_idx = i
+            best_t = t
+
+    if best_seg_idx < 0:
+        return list(path)  # fallback: no scanline found
+
+    a, b = path[best_seg_idx], path[best_seg_idx + 1]
+    dx = b.x - a.x
+    dy = b.y - a.y
+    seg_len = math.hypot(dx, dy)
+    if seg_len <= 1e-12:
+        return list(path)
+
+    # Scanline direction (a → b)
+    ux = dx / seg_len
+    uy = dy / seg_len
+
+    # point_0 = projection of ownship onto the scanline
+    point_0 = _LocalPoint(x=a.x + best_t * dx, y=a.y + best_t * dy)
+
+    # Upper half: point_0 → b → ... → end
+    upper_half = [point_0] + list(path[best_seg_idx + 1:])
+
+    # Lower start: same scanline, 1×search_radius opposite direction
+    lower_start = _LocalPoint(
+        x=point_0.x - ux * search_radius,
+        y=point_0.y - uy * search_radius,
+    )
+
+    # lower half: lower_start → backward linear traversal of corners
+    lower_half = [lower_start]
+    for i in range(best_seg_idx, -1, -1):
+        lower_half.append(path[i])
+
+    return upper_half + lower_half
+
+
+def _find_scanline_from_corner(
+    path: List[_LocalPoint],
+    corner_idx: int,
+    sweep_angle_deg: float,
+) -> Tuple[Optional[int], Tuple[float, float]]:
+    """Find the scanline containing the corner at *corner_idx*.
+
+    Returns
+    -------
+    (other_end_idx, scanline_direction_unit_vector)
+        *other_end_idx* is the index of the other endpoint of the scanline,
+        or ``None`` if no adjacent scanline is found.
+        *scanline_direction_unit_vector* is ``(ux, uy)``, the unit vector
+        from one endpoint to the other (in the path's forward direction).
+    """
+    n = len(path)
+
+    # Check segment (corner_idx → corner_idx+1)
+    if corner_idx + 1 < n:
+        a, b = path[corner_idx], path[corner_idx + 1]
+        if _is_scanline_segment(a, b, sweep_angle_deg):
+            dx = b.x - a.x
+            dy = b.y - a.y
+            seg_len = math.hypot(dx, dy)
+            if seg_len > 1e-12:
+                return (corner_idx + 1), (dx / seg_len, dy / seg_len)
+
+    # Check segment (corner_idx-1 → corner_idx)
+    if corner_idx - 1 >= 0:
+        a, b = path[corner_idx - 1], path[corner_idx]
+        if _is_scanline_segment(a, b, sweep_angle_deg):
+            dx = b.x - a.x
+            dy = b.y - a.y
+            seg_len = math.hypot(dx, dy)
+            if seg_len > 1e-12:
+                return (corner_idx - 1), (dx / seg_len, dy / seg_len)
+
+    return None, (0.0, 0.0)
+
+
 def generate_simple_patrol_waypoints(
     task_area: TaskArea,
     expected_speed: float,
@@ -1060,7 +1300,6 @@ def generate_simple_patrol_waypoints(
             for point in task_area.points
         ]
 
-    pass_count = _normalize_pass_count(num_passes)
     local_polygon, ref_lon, ref_lat = _project_to_local(task_area.points)
     local_polygon = _normalize_polygon_boundary(local_polygon)
     polygon_xy = [(point.x, point.y) for point in local_polygon]
@@ -1073,7 +1312,7 @@ def generate_simple_patrol_waypoints(
         search_radius = scan_radius_m
         spacing = max(2.0 * search_radius, 1.0)
     else:
-        spacing = max(span_y / max(pass_count - 1, 1), 1.0)
+        spacing = max(span_y / max(max(2, num_passes) - 1, 1), 1.0)
         search_radius = spacing / 2.0
     boundary_clearance = (
         boundary_clearance_m
@@ -1081,8 +1320,8 @@ def generate_simple_patrol_waypoints(
         else min(max(spacing * 0.05, 0.0), 5.0)
     )
 
-    scan_margin = max(search_radius * 0.5, boundary_clearance)
-    endpoint_margin = max(search_radius * 0.5, boundary_clearance)
+    scan_margin = boundary_clearance
+    endpoint_margin = boundary_clearance
 
     sweep_angle_deg = _choose_sweep_angle(
         polygon=polygon_xy,
@@ -1110,7 +1349,7 @@ def generate_simple_patrol_waypoints(
     loops = _build_concentric_loops(
         local_polygon,
         spacing,
-        pass_count,
+        max(2, num_passes),
         start_offset=search_radius,
         max_vertex_offset=search_radius,
     )
@@ -1120,7 +1359,7 @@ def generate_simple_patrol_waypoints(
         # Force scanline generation
         # Helper: generate paths with a given spacing
         def _gen_paths(s: float) -> List[List[_LocalPoint]]:
-            sm = max(s * 0.5, boundary_clearance)
+            sm = boundary_clearance
             paths = _generate_candidate_paths(
                 polygon_xy=polygon_xy,
                 sweep_angle_deg=sweep_angle_deg,
@@ -1140,19 +1379,8 @@ def generate_simple_patrol_waypoints(
 
         # Collect all path variants with different scan-line counts
         all_paths: List[List[_LocalPoint]] = []
-        # Base: use original spacing (from scan_radius or pass_count)
+        # Base: use original spacing (from scan_radius)
         all_paths.extend(_gen_paths(spacing))
-        # Explore nearby pass counts to get better endpoint alignment
-        if ownship_point is not None:
-            for delta in (-2, -1, 0, 1, 2):
-                adj = max(2, pass_count + delta)
-                s = max(span_y / max(adj - 1, 1), 1.0)
-                adj_paths = _gen_paths(s)
-                all_paths.extend(adj_paths)
-                for p in adj_paths:
-                    rp = list(reversed(p))
-                    if rp:
-                        all_paths.append(rp)
         candidate_paths = all_paths
     elif pattern == "concentric":
         # Use concentric loops. Defer rotation/densification until we know
@@ -1273,12 +1501,7 @@ def generate_simple_patrol_waypoints(
     else:
         for path in candidate_paths:
             dense_path = _densify_path(path, max_step_m=dense_step)
-            safe_path = _filter_points_in_safe_zone(
-                points=dense_path,
-                polygon_xy=polygon_xy,
-                required_margin_m=boundary_clearance,
-            )
-            prepared_candidate_paths.append(safe_path if safe_path else dense_path)
+            prepared_candidate_paths.append(dense_path)
 
     entry_point = None
     entry_local = None
@@ -1408,56 +1631,115 @@ def generate_simple_patrol_waypoints(
             # (ownship when inside, entry vertex when outside). The flattened
             # path already has the correct ordering — no second rotation needed.
         else:
-            # fallback to previous behaviour for non-stitched candidate paths
-            def _score(points: List[_LocalPoint]) -> float:
-                return _compute_start_cost(
-                    points=points,
-                    ownship_point=ownship_local,
-                    ownship_heading_deg=ownship_heading_deg,
-                    turn_penalty_m_per_deg=turn_penalty,
-                ) + endpoint_weight * _compute_endpoint_distance(
-                    points=points,
-                    target_point=ownship_local,
-                )
-
-            if _point_in_polygon((ownship_local.x, ownship_local.y), polygon_xy):
-                start_point = ownship_point
-                inside_start_variants: List[List[_LocalPoint]] = []
-                for path in prepared_candidate_paths:
-                    inside_start_variants.extend(_build_inside_start_variants(path))
-                if inside_start_variants:
-                    prepared_candidate_paths = inside_start_variants
-                selected_path = min(
-                    prepared_candidate_paths,
-                    key=_score,
-                )
-            else:
-                entry_point = _build_polygon_entry_point(local_polygon, ref_lon, ref_lat, ownship_point)
-                start_point = entry_point
-                entry_local = _project_point_to_local(entry_point, ref_lon=ref_lon, ref_lat=ref_lat)
-                if _distance_m(entry_local.x - ownship_local.x, entry_local.y - ownship_local.y) > 1e-6:
-                    approach_heading_deg = _bearing_from_vector(entry_local.x - ownship_local.x, entry_local.y - ownship_local.y)
+            # Non-stitched candidate paths: lawnmower vs default
+            if pattern == "lawnmower" and _point_in_polygon((ownship_local.x, ownship_local.y), polygon_xy):
+                # === Inside-area lawnmower ===
+                # 1. Simplify each candidate path to corners (scanline
+                #    endpoints) before splitting.
+                # 2. Split using gravitational-field + projection logic.
+                #    Gravitational radius = search_radius + 200 m.
+                #    Only scanline segments are considered for projection;
+                #    connectors are ignored.
+                # 3. The resulting path retains only corners and key nodes
+                #    (split point, lower-start).
+                corner_paths = [_simplify_collinear_path(p, eps=1.0) for p in prepared_candidate_paths]
+                split_paths: List[List[_LocalPoint]] = []
+                for path in corner_paths:
+                    sp = _split_lawnmower_path_at_ownship(
+                        path, ownship_local, search_radius, sweep_angle_deg,
+                    )
+                    if sp:
+                        split_paths.append(sp)
+                if split_paths:
+                    prepared_candidate_paths = split_paths
+                    # Pick the path whose first point (split point) is closest
+                    # to the ownship.
+                    selected_path = min(
+                        prepared_candidate_paths,
+                        key=lambda p: _distance_m(p[0].x - ownship_local.x, p[0].y - ownship_local.y),
+                    )
+                    start_point = None  # path already starts at split point near ownship
                 else:
-                    approach_heading_deg = ownship_heading_deg
-                # Extend candidates with forward/backward variants so the path
-                # can start from either end, minimising the jump from the entry
-                # vertex to the first coverage waypoint.
-                outside_start_variants: List[List[_LocalPoint]] = []
+                    selected_path = prepared_candidate_paths[0] if prepared_candidate_paths else []
+                    start_point = ownship_point
+            elif pattern == "lawnmower":
+                # === Outside-area lawnmower ===
+                # Choose the endpoint (first or last point of any candidate
+                # path) that is closest to the ownship, and start there.
+                best_path: Optional[List[_LocalPoint]] = None
+                best_dist = float("inf")
                 for path in prepared_candidate_paths:
-                    outside_start_variants.extend(_build_inside_start_variants(path))
-                if outside_start_variants:
-                    prepared_candidate_paths = outside_start_variants
-                selected_path = min(
-                    prepared_candidate_paths,
-                    key=lambda points: (
-                        _compute_entry_scan_offset(
-                            points=points,
-                            entry_point=entry_local,
-                            sweep_angle_deg=sweep_angle_deg,
+                    if not path:
+                        continue
+                    # Forward variant: first point
+                    d = _distance_m(path[0].x - ownship_local.x, path[0].y - ownship_local.y)
+                    if d < best_dist:
+                        best_dist = d
+                        best_path = path
+                    # Backward variant: last point (reversed)
+                    d = _distance_m(path[-1].x - ownship_local.x, path[-1].y - ownship_local.y)
+                    if d < best_dist:
+                        best_dist = d
+                        best_path = list(reversed(path))
+                if best_path is not None:
+                    selected_path = best_path
+                    start_point = None  # path starts at nearest endpoint directly
+                else:
+                    selected_path = []
+                    start_point = None
+            else:
+                # fallback to previous behaviour for non-lawnmower patterns
+                # (default / unrecognised)
+                def _score(points: List[_LocalPoint]) -> float:
+                    return _compute_start_cost(
+                        points=points,
+                        ownship_point=ownship_local,
+                        ownship_heading_deg=ownship_heading_deg,
+                        turn_penalty_m_per_deg=turn_penalty,
+                    ) + endpoint_weight * _compute_endpoint_distance(
+                        points=points,
+                        target_point=ownship_local,
+                    )
+
+                if _point_in_polygon((ownship_local.x, ownship_local.y), polygon_xy):
+                    start_point = ownship_point
+                    inside_start_variants: List[List[_LocalPoint]] = []
+                    for path in prepared_candidate_paths:
+                        inside_start_variants.extend(_build_inside_start_variants(path))
+                        inside_start_variants.extend(_build_nearest_cut_variants(path, ownship_local))
+                    if inside_start_variants:
+                        prepared_candidate_paths = inside_start_variants
+                    selected_path = min(
+                        prepared_candidate_paths,
+                        key=_score,
+                    )
+                else:
+                    entry_point = _build_polygon_entry_point(local_polygon, ref_lon, ref_lat, ownship_point)
+                    start_point = entry_point
+                    entry_local = _project_point_to_local(entry_point, ref_lon=ref_lon, ref_lat=ref_lat)
+                    if _distance_m(entry_local.x - ownship_local.x, entry_local.y - ownship_local.y) > 1e-6:
+                        approach_heading_deg = _bearing_from_vector(entry_local.x - ownship_local.x, entry_local.y - ownship_local.y)
+                    else:
+                        approach_heading_deg = ownship_heading_deg
+                    # Extend candidates with forward/backward variants so the path
+                    # can start from either end, minimising the jump from the entry
+                    # vertex to the first coverage waypoint.
+                    outside_start_variants: List[List[_LocalPoint]] = []
+                    for path in prepared_candidate_paths:
+                        outside_start_variants.extend(_build_inside_start_variants(path))
+                    if outside_start_variants:
+                        prepared_candidate_paths = outside_start_variants
+                    selected_path = min(
+                        prepared_candidate_paths,
+                        key=lambda points: (
+                            _compute_entry_scan_offset(
+                                points=points,
+                                entry_point=entry_local,
+                                sweep_angle_deg=sweep_angle_deg,
+                            ),
+                            _score(points),
                         ),
-                        _score(points),
-                    ),
-                )
+                    )
 
     # If concentric loops were used as the main pattern, detect uncovered
     # pockets (cells that lie farther than spacing/2 from any path) and

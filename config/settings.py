@@ -51,7 +51,7 @@ class TrackingFilterConfig(BaseModel):
     top_k_candidates: int = 1
     hysteresis_enabled: bool = True
     hysteresis_margin: float = 0.5
-    debug_enabled: bool = True
+    debug_enabled: bool = False
 
 
 class TrackingConfig(BaseModel):

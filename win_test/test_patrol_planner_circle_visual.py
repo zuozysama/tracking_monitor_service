@@ -21,7 +21,7 @@ from domain.models import GeoPoint, TaskArea
 PATROL_PATTERN: str = "lawnmower"  # "lawnmower" or "concentric"
 PATROL_NUM_PASSES = 8
 PATROL_SCAN_RADIUS_M: float | None = 1000.0
-PATROL_BOUNDARY_CLEARANCE_M: float | None = 50.0
+PATROL_BOUNDARY_CLEARANCE_M: float | None = 500.0
 EXPECTED_SPEED = 12.0
 
 CIRCLE_CENTER_LONGITUDE = 124.3819
