@@ -51,6 +51,9 @@ def _on_ownship_message(data: dict) -> None:
 
 
 def _on_target_perception_message(data: dict) -> None:
+    if data.get("drop_message"):
+        return
+
     targets_raw = data.get("targets") or []
     allowed_enemy_friend_attrs = get_dds_target_enemy_friend_attrs()
     models: list[TargetState] = []

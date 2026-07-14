@@ -361,11 +361,13 @@ class TopicCodecDecodeTestCase(unittest.TestCase):
         data_source_offset = field_offsets["data_source"]
         struct.pack_into(">I", payload, data_source_offset, 2001)
         bd_batch_offset = field_offsets["bd_target_batch_no"]
-        struct.pack_into(">I", payload, bd_batch_offset, 2002)
+        payload[bd_batch_offset : bd_batch_offset + 4] = bytes.fromhex("00002002")
 
         decoded = decode_topic_payload(TARGET_PERCEPTION_TOPIC, bytes(payload))
 
         self.assertEqual(decoded["format"], "target_track_all_369_to_target_perception")
+        self.assertEqual(decoded["message_sequence"], 7)
+        self.assertNotIn("revision", decoded)
         target = decoded["targets"][0]
         self.assertEqual(target["target_batch_no"], 2002)
         self.assertEqual(target["target_id"], "target-2002")
@@ -373,6 +375,36 @@ class TopicCodecDecodeTestCase(unittest.TestCase):
         self.assertEqual(target["bd_target_batch_no"], 2002)
         self.assertEqual(decoded["target_track_all_fields"]["composite_track_batch_no"], 1001)
         self.assertEqual(decoded["target_track_all_fields"]["bd_target_batch_no"], 2002)
+
+    def test_decode_target_track_all_drops_all_ff_bd_batch(self):
+        payload = bytearray(369)
+        struct.pack_into(">B", payload, 4, 1)
+        struct.pack_into(">H", payload, 5, 369)
+        struct.pack_into(">B", payload, 7, 1)
+        struct.pack_into(">I", payload, 8, 1)
+
+        offset = 0
+        field_offsets = {}
+        for name, byte_size, _field_type, _scale in TARGET_TRACK_ALL_FIELDS:
+            field_offsets[name] = offset
+            offset += byte_size
+
+        bd_batch_offset = field_offsets["bd_target_batch_no"]
+        payload[bd_batch_offset : bd_batch_offset + 4] = b"\xFF" * 4
+
+        decoded = decode_topic_payload(TARGET_PERCEPTION_TOPIC, bytes(payload))
+
+        self.assertTrue(decoded["drop_message"])
+        self.assertEqual(decoded["drop_reason"], "bd_target_batch_no_all_ff")
+        self.assertEqual(decoded["target_count"], 0)
+        self.assertEqual(decoded["targets"], [])
+        self.assertIsNone(decoded["target_track_all_fields"]["bd_target_batch_no"])
+
+        payload[bd_batch_offset : bd_batch_offset + 4] = b"\x00" * 4
+        zero_batch_decoded = decode_topic_payload(TARGET_PERCEPTION_TOPIC, bytes(payload))
+
+        self.assertNotIn("drop_message", zero_batch_decoded)
+        self.assertEqual(zero_batch_decoded["targets"][0]["target_batch_no"], 0)
 
     def test_encode_task_update_21_plus_100(self):
         body = encode_topic_payload(

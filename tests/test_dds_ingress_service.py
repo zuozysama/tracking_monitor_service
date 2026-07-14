@@ -135,6 +135,61 @@ class DdsIngressServiceTestCase(unittest.TestCase):
         snapshot = situation_store.get_situation_snapshot()
         self.assertEqual(len(snapshot["targets"]), 0)
 
+    def test_repeated_message_sequence_does_not_block_store_updates(self):
+        first_target = _target_item(
+            batch_no=10015000,
+            military_civil_attr=2,
+            source_platform_id=1001,
+        )
+        _on_target_perception_message(
+            {
+                "source_id": "1001",
+                "message_sequence": 1,
+                "targets": [first_target],
+            }
+        )
+
+        first_snapshot = situation_store.get_situation_snapshot()
+        self.assertEqual(first_snapshot["revision"], 1)
+        self.assertEqual(first_snapshot["targets"][0].target_batch_no, 10015000)
+
+        second_target = dict(first_target)
+        second_target["target_distance_m"] = 4500.0
+        _on_target_perception_message(
+            {
+                "source_id": "1001",
+                "message_sequence": 1,
+                "targets": [second_target],
+            }
+        )
+
+        second_snapshot = situation_store.get_situation_snapshot()
+        self.assertEqual(second_snapshot["revision"], 2)
+        self.assertEqual(second_snapshot["targets"][0].target_distance_m, 4500.0)
+        self.assertEqual(second_snapshot["last_source_id"], "1001")
+
+    def test_dropped_target_track_all_message_does_not_update_store(self):
+        _on_target_perception_message(
+            {
+                "source_id": "1001",
+                "message_sequence": 1,
+                "drop_message": True,
+                "drop_reason": "bd_target_batch_no_all_ff",
+                "targets": [
+                    _target_item(
+                        batch_no=0,
+                        military_civil_attr=2,
+                        source_platform_id=1001,
+                    )
+                ],
+            }
+        )
+
+        snapshot = situation_store.get_situation_snapshot()
+        self.assertEqual(snapshot["targets"], [])
+        self.assertEqual(snapshot["revision"], 0)
+        self.assertIsNone(snapshot["last_source_id"])
+
 
 if __name__ == "__main__":
     unittest.main()
