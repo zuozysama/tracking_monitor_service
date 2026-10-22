@@ -4,7 +4,11 @@ from adapters.dds.base import DdsAdapter
 from domain.dds_contract import OWNSHIP_NAVIGATION_TOPIC, TARGET_PERCEPTION_TOPIC
 from domain.models import OwnShipState, TargetState
 from store.situation_store import situation_store
-from utils.config_utils import get_dds_focus_platform_id, get_dds_target_enemy_friend_attrs
+from utils.config_utils import (
+    get_dds_focus_platform_id,
+    get_dds_target_batch_no_source,
+    get_dds_target_enemy_friend_attrs,
+)
 from utils.terminal import print_ownship_situation, print_targets_situation
 from utils.time_utils import utc_now
 
@@ -115,5 +119,6 @@ def _on_target_perception_message(data: dict) -> None:
 
 
 def register_default_subscriptions(dds_adapter: DdsAdapter) -> None:
+    get_dds_target_batch_no_source()
     dds_adapter.subscribe(OWNSHIP_NAVIGATION_TOPIC, _on_ownship_message)
     dds_adapter.subscribe(TARGET_PERCEPTION_TOPIC, _on_target_perception_message)

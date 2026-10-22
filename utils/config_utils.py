@@ -211,6 +211,21 @@ def get_dds_target_stale_timeout_sec() -> float:
     return value
 
 
+def get_dds_target_batch_no_source() -> str:
+    raw = os.getenv("DDS_TARGET_BATCH_NO_SOURCE")
+    if raw is None:
+        return "bd_target_batch_no"
+
+    source = raw.strip().lower()
+    allowed = {"bd_target_batch_no", "composite_track_batch_no"}
+    if source not in allowed:
+        raise ValueError(
+            "DDS_TARGET_BATCH_NO_SOURCE must be 'bd_target_batch_no' or "
+            "'composite_track_batch_no'"
+        )
+    return source
+
+
 def get_dds_target_enemy_friend_attrs() -> set[int] | None:
     raw = os.getenv("DDS_TARGET_ENEMY_FRIEND_ATTRS")
     if raw is None:
