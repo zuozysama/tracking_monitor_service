@@ -25,6 +25,9 @@ services:
       DDS_TOPIC_STREAM_MEDIA_PARAM: "cc_cm_tracking_monitor_service.v1.stream_media_param_topic"
       DDS_TOPIC_OWNSHIP_NAVIGATION: "cc_cm_tracking_monitor_service.v1.ownship_navigation_topic"
       DDS_TOPIC_TARGET_PERCEPTION: "cc_cm_tracking_monitor_service.v1.target_perception_topic"
+      # Source for target_batch_no in 369-byte target_track_all messages.
+      # Use bd_target_batch_no (field 51, default) or composite_track_batch_no (field 9).
+      DDS_TARGET_BATCH_NO_SOURCE: "${DDS_TARGET_BATCH_NO_SOURCE:-bd_target_batch_no}"
 
       DDS_SDK_ROOT: "/app/thirdparty/ljdds/DDSCore3.0.1"
       DDS_SDK_ARCH_DIR: "ft2000KylinV10GFgcc9.3.0"

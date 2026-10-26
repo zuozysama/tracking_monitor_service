@@ -14,6 +14,7 @@ from domain.dds_contract import (
     TARGET_PERCEPTION_TOPIC,
     TASK_UPDATE_TOPIC,
 )
+from utils.config_utils import get_dds_target_batch_no_source
 
 DEFAULT_TARGET_TRACK_ALL_TOPIC = "cc_lm_situation_generating.v1.target_track_all"
 TARGET_TRACK_ALL_FIELD_COUNT = 65
@@ -484,7 +485,7 @@ def _decode_target_track_all_payload(payload: bytes) -> dict[str, Any]:
     body = payload[:TARGET_TRACK_ALL_PACKET_SIZE]
     for name, byte_size, field_type, scale in TARGET_TRACK_ALL_FIELDS:
         raw = body[offset : offset + byte_size]
-        if name == "bd_target_batch_no" and _is_all_ff(raw):
+        if name in {"bd_target_batch_no", "composite_track_batch_no"} and _is_all_ff(raw):
             fields[name] = None
         else:
             fields[name] = _decode_target_track_all_field(raw, field_type, scale)
@@ -518,10 +519,11 @@ def _decode_target_track_all_as_target_perception(topic: str, body: bytes) -> di
     if isinstance(control_word, dict) and isinstance(control_word.get("fields"), dict):
         control_fields = control_word["fields"]
 
+    batch_no_source = get_dds_target_batch_no_source()
     timestamp = _target_track_all_timestamp(fields)
-    composite_batch_no = _safe_int_value(fields.get("composite_track_batch_no"), 0)
+    composite_batch_no = fields.get("composite_track_batch_no")
     source_platform_id = _safe_int_value(fields.get("data_source"), 0)
-    if fields.get("bd_target_batch_no") is None:
+    if fields.get(batch_no_source) is None:
         return {
             "format": "target_track_all_369_to_target_perception",
             "decode_format": decoded.get("decode_format", "target_track_all"),
@@ -535,15 +537,16 @@ def _decode_target_track_all_as_target_perception(topic: str, body: bytes) -> di
             "target_count": 0,
             "targets": [],
             "drop_message": True,
-            "drop_reason": "bd_target_batch_no_all_ff",
+            "drop_reason": f"{batch_no_source}_all_ff",
+            "target_batch_no_source": batch_no_source,
             "target_track_all_fields": fields,
             "control_word_fields": control_fields,
             "target_track_all_decoded": decoded,
             "timestamp": timestamp,
         }
 
-    bd_batch_no = _safe_int_value(fields.get("bd_target_batch_no"), 0)
-    batch_no = bd_batch_no
+    bd_batch_no = fields.get("bd_target_batch_no")
+    batch_no = _safe_int_value(fields.get(batch_no_source), 0)
     target_type_code = _optional_int_value(
         _first_present(
             control_fields.get("target_type_2"),
@@ -604,6 +607,7 @@ def _decode_target_track_all_as_target_perception(topic: str, body: bytes) -> di
         "message_sequence": _safe_int_value(fields.get("message_sequence"), 0),
         "target_count": 1,
         "targets": [target],
+        "target_batch_no_source": batch_no_source,
         "target_track_all_fields": fields,
         "control_word_fields": control_fields,
         "target_track_all_decoded": decoded,
