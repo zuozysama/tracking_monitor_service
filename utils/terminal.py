@@ -5,6 +5,8 @@ Provides styled console helpers built on top of ``rich`` for consistent,
 colorful, and structured terminal output across the project.
 """
 
+from __future__ import annotations
+
 import json
 import logging
 from datetime import datetime, timezone
@@ -102,26 +104,38 @@ def setup_logging(level: str = "INFO") -> None:
 
 # ── Domain-specific beautification helpers ──────────────────────────────
 
-def _compact_json(data: dict, max_values: int = 30) -> str:
+def _compact_json(data: dict, max_values: int = 999) -> str:
     """Render a dict as compact ``{key=val, ...}`` for one-line display.
 
-    Only keeps the first *max_values* entries; nested dicts/lists are
-    shortened to a count or ellipsis.
+    Shows all entries; nested dicts/lists are recursively expanded.
     """
     items: list[str] = []
     for k, v in list(data.items())[:max_values]:
+        if v is None:
+            continue
         if isinstance(v, dict):
-            v = "{...}" if v else "{}"
+            v = _compact_json(v, max_values) if v else "{}"
         elif isinstance(v, list):
-            v = f"[{len(v)} items]" if v else "[]"
+            v = "[" + ", ".join(_compact_val(i) for i in v[:10]) + (f", ...({len(v)} total)" if len(v) > 10 else "") + "]"
         elif isinstance(v, float):
             v = f"{v:.4f}"
-        elif isinstance(v, str) and len(v) > 64:
-            v = v[:60] + "..."
+        elif isinstance(v, str):
+            pass  # show full string
         items.append(f"{k}={v}")
     if len(data) > max_values:
         items.append("...")
     return "{" + ", ".join(items) + "}"
+
+
+def _compact_val(val: Any) -> str:
+    """Render a single value compactly."""
+    if isinstance(val, dict):
+        return _compact_json(val) if val else "{}"
+    if isinstance(val, list):
+        return "[" + ", ".join(_compact_val(i) for i in val[:5]) + (f", ...({len(val)} total)" if len(val) > 5 else "") + "]"
+    if isinstance(val, float):
+        return f"{val:.4f}"
+    return str(val)
 
 
 def _compact_task_type(task_type) -> str:
@@ -139,12 +153,50 @@ def _compact_task_type(task_type) -> str:
     return mapping.get(t, t)
 
 
+def _hybrid_json(data: dict, unfold_keys: set[str] | None = None) -> str:
+    """Render a dict in hybrid one-line + multi-line style.
+
+    Flat fields (str, int, bool, float, None) are shown in a compact one-line
+    ``{key=val, ...}`` block.  Nested dicts/lists listed in *unfold_keys* are
+    placed on separate indented lines using the full ``_compact_json`` render.
+
+    Example::
+
+        {task_id=xxx, task_type=escort, ...}
+          target_info: {target_id=..., target_name=..., ...}
+          task_area:   {area_type=polygon, ...}
+    """
+    unfold_keys = unfold_keys or set()
+    flat: list[str] = []
+    unfolded: list[tuple[str, str]] = []
+
+    for k, v in data.items():
+        if k in unfold_keys:
+            unfolded.append((k, _compact_json(v) if isinstance(v, dict) else str(v)))
+        elif isinstance(v, dict):
+            flat.append(f"{k}={_compact_json(v)}")
+        elif isinstance(v, list):
+            flat.append(f"{k}=[" + ", ".join(_compact_val(i) for i in v[:10]) + (f", ...({len(v)} total)" if len(v) > 10 else "") + "]")
+        elif isinstance(v, float):
+            flat.append(f"{k}={v:.4f}")
+        elif v is None:
+            continue  # skip None fields
+        else:
+            flat.append(f"{k}={v}")
+
+    # Build output
+    lines = ["{" + ", ".join(flat) + "}"]
+    for key, val in unfolded:
+        lines.append(f"  {key}: {val}")
+    return "\n".join(lines)
+
+
 def print_received_task(task_summary: dict) -> None:
     """Print all fields when a task is received from upstream."""
     print_rule(style="cyan")
     task_id = task_summary.get("task_id", "-")
-    compact = _compact_json(task_summary)
-    msg = f"收到任务 {task_id} {compact}"
+    hybrid = _hybrid_json(task_summary, unfold_keys={"target_info", "task_area", "end_condition"})
+    msg = f"收到任务 {task_id}\n{hybrid}"
     _rich_print("info", "TaskIn", msg, {})
 
 
@@ -198,13 +250,17 @@ def print_targets_situation(target_count: int, targets: list) -> None:
     )
     items: list[str] = [f"目标: {target_count} 个活跃"]
     for t in sorted_targets[:5]:  # Show up to 5 targets
-        target_batch_no = getattr(t, "target_batch_no", "?")
-        target_distance_m = getattr(t, "target_distance_m", "?")
-        target_absolute_heading_deg = getattr(t, "target_absolute_heading_deg", "?")
-        target_absolute_speed_mps = getattr(t, "target_absolute_speed_mps", "?")
-        target_type_code = getattr(t, "target_type_code", "?")
-        threat_level = getattr(t, "threat_level", "?")
-        items.append(f"target_batch_no={target_batch_no}  target_type_code={target_type_code}  target_distance_m={target_distance_m}  target_absolute_heading_deg={target_absolute_heading_deg}  target_absolute_speed_mps={target_absolute_speed_mps}  threat_level={threat_level}")
+        fields = {
+            "target_batch_no": getattr(t, "target_batch_no", None),
+            "target_type_code": getattr(t, "target_type_code", None),
+            "target_distance_m": getattr(t, "target_distance_m", None),
+            "target_absolute_heading_deg": getattr(t, "target_absolute_heading_deg", None),
+            "target_absolute_speed_mps": getattr(t, "target_absolute_speed_mps", None),
+            "threat_level": getattr(t, "threat_level", None),
+        }
+        parts = [f"{k}={v}" for k, v in fields.items() if v is not None]
+        if parts:
+            items.append("  ".join(parts))
     if target_count > 5:
         items.append(f"... 还有 {target_count - 5} 个")
     _rich_print("info", "Situation", " | ".join(items), {})
