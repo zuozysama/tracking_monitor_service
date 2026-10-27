@@ -37,6 +37,11 @@ def _sync_targets(
 def update_ownship(req: OwnShipState):
     situation_store.update_ownship(req)
     dds_adapter.publish(topic=OWNSHIP_NAVIGATION_TOPIC, payload=req.model_dump(mode="json"))
+    global _mock_nav_counter
+    _mock_nav_counter += 1
+    if _mock_nav_counter >= _MOCK_PRINT_INTERVAL:
+        _mock_nav_counter = 0
+        print_ownship_situation(req)
     return ok({"platform_id": req.platform_id})
 
 
@@ -47,6 +52,14 @@ def update_targets(
 ):
     resolved_sync_mode, result = _sync_targets(req, sync_mode)
     dds_adapter.publish(topic=TARGET_PERCEPTION_TOPIC, payload=req.model_dump(mode="json"))
+    global _mock_target_counter
+    if result.accepted and req.targets:
+        _mock_target_counter += 1
+        if _mock_target_counter >= _MOCK_PRINT_INTERVAL:
+            _mock_target_counter = 0
+            snapshot = situation_store.get_situation_snapshot()
+            all_targets = snapshot.get("targets", [])
+            print_targets_situation(len(all_targets), all_targets)
     return ok(
         {
             "accepted": result.accepted,

@@ -334,7 +334,7 @@ class CollaborationService:
         task.manual_selection_pending = False
         task.manual_selection_last_countdown_sec = None
         task.update_time = now
-        warning("ManualSelection", f"task={task.task_id} timeout reached, keep highest-rank target")
+        log_warning("ManualSelection", f"task={task.task_id} timeout reached, keep highest-rank target")
         task_store.update_task(task)
 
     def _build_manual_switch_candidates(self, task: TaskContext) -> list[TargetInfo]:
@@ -448,7 +448,7 @@ class CollaborationService:
         task.manual_switch_pending = False
         task.manual_switch_last_countdown_sec = None
         task.update_time = now
-        warning("ManualSwitch", f"task={task.task_id} timeout reached, keep current target")
+        log_warning("ManualSwitch", f"task={task.task_id} timeout reached, keep current target")
         task_store.update_task(task)
 
     def _build_plan_signature_payload(self, task: TaskContext) -> tuple[Optional[str], Optional[dict]]:
