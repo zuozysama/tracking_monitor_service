@@ -77,9 +77,15 @@ class ExternalServiceEndpointConfig(BaseModel):
     rtsp_url: str = ""
 
 
+class MediaServiceEndpointConfig(ExternalServiceEndpointConfig):
+    front_rtsp_url: str = ""
+    rear_rtsp_url: str = ""
+    output_dir: str = "artifacts/media"
+
+
 class ExternalServicesConfig(BaseModel):
     optronic: ExternalServiceEndpointConfig = ExternalServiceEndpointConfig()
-    media: ExternalServiceEndpointConfig = ExternalServiceEndpointConfig()
+    media: MediaServiceEndpointConfig = Field(default_factory=MediaServiceEndpointConfig)
     planning: ExternalServiceEndpointConfig = ExternalServiceEndpointConfig()
     sonar: ExternalServiceEndpointConfig = ExternalServiceEndpointConfig()
     autonomy: ExternalServiceEndpointConfig = ExternalServiceEndpointConfig()
@@ -267,6 +273,13 @@ def load_settings(config_file: str = "config/service_settings.yaml") -> ServiceC
     merged = _apply_tracking_filter_env_overrides(merged)
     merged = _apply_fixed_tracking_env_overrides(merged)
     merged = _apply_external_service_env_overrides(merged)
+    media = merged.setdefault("external_services", {}).setdefault("media", {})
+    for name, field in (("MEDIA_FRONT_RTSP_URL", "front_rtsp_url"),
+                        ("MEDIA_REAR_RTSP_URL", "rear_rtsp_url"),
+                        ("MEDIA_OUTPUT_DIR", "output_dir")):
+        value = _get_env_str(name)
+        if value is not None:
+            media[field] = value
     return ServiceConfig(**merged)
 
 

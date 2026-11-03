@@ -111,8 +111,8 @@ class StreamMediaParam(CompatModel):
 
 
 class LinkageParam(CompatModel):
-    enable_optical: bool = False
-    enable_evidence: bool = False
+    enable_optical: bool = True
+    enable_evidence: bool = True
 
 
 class CreateTaskRequest(CompatModel):
@@ -133,7 +133,7 @@ class CreateTaskRequest(CompatModel):
 
     end_condition: Optional[EndCondition] = None
     stream_media_param: Optional[StreamMediaParam] = None
-    linkage_param: Optional[LinkageParam] = None
+    linkage_param: Optional[LinkageParam] = Field(default_factory=LinkageParam)
     # Note: pattern moved into TaskArea.patrol_pattern to keep request compact
 
     @model_validator(mode="after")
