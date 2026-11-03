@@ -19,6 +19,10 @@ from api.task_api import router as task_router
 from domain.response import ok
 from scheduler.decision_loop import decision_loop
 from services.dds_ingress_service import register_default_subscriptions
+from services.collaboration_service import dual_video_recorder
+from services.completion_report_repeater import completion_report_repeater
+from config.media_sources import gd_stream_sources, media_output_dir
+from config.settings import settings
 from utils.terminal import console, setup_logging, info
 
 logger = logging.getLogger(__name__)
@@ -65,6 +69,9 @@ def _resolve_swagger_assets_dir() -> Optional[Path]:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    if settings.external_services.media.mode.strip().lower() != "http":
+        gd_stream_sources()
+        media_output_dir(check_writable=True)
     setup_logging(level="INFO")
     console.print()
     console.print("[bold green]╔══════════════════════════════════════════════╗")
@@ -74,12 +81,17 @@ async def lifespan(app: FastAPI):
 
     dds_adapter = get_dds_adapter()
     register_default_subscriptions(dds_adapter)
+    completion_report_repeater.start()
     decision_loop.start()
     info("App", "decision loop started")
-    yield
-    decision_loop.stop()
-    get_dds_adapter().stop()
-    info("App", "decision loop stopped")
+    try:
+        yield
+    finally:
+        decision_loop.stop()
+        dual_video_recorder.stop_all()
+        completion_report_repeater.stop()
+        get_dds_adapter().stop()
+        info("App", "decision loop stopped")
 
 
 app = FastAPI(

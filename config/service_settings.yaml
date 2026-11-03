@@ -72,6 +72,9 @@ external_services:
     base_url: ""
     timeout_sec: 3.0
     rtsp_url: ""
+    front_rtsp_url: ""
+    rear_rtsp_url: ""
+    output_dir: "artifacts/media"
 
   planning:
     mode: mock

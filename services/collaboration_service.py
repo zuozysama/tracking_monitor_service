@@ -1,11 +1,15 @@
 import json
 from datetime import datetime, timedelta
 from pathlib import Path
+from threading import RLock
 from typing import Optional, Union
 
 from adapters.dds import get_dds_adapter
 from clients.autonomy_client import autonomy_client
 from clients.media_client import media_client
+from clients.media_recording import DualVideoRecorder
+from clients.media_routing import select_evidence_channel
+from store.situation_store import situation_store
 from clients.optical_linkage_client import optical_linkage_client
 from clients.planning_client import planning_client
 from clients.sonar_client import sonar_client
@@ -49,8 +53,11 @@ from utils.config_utils import (
 from utils.geo_utils import haversine_distance_m
 from utils.terminal import info, success, warning as log_warning, print_publish_dds, print_dispatch_to, print_dispatch_response, print_rule
 from utils.time_utils import utc_now
+from services.completion_report_repeater import completion_report_repeater
 
 dds_adapter = get_dds_adapter()
+dual_video_recorder = DualVideoRecorder(media_client)
+_dds_publish_lock = RLock()
 
 
 def _seconds_since(last_time: Optional[datetime]) -> Optional[float]:
@@ -145,7 +152,9 @@ class CollaborationService:
         }
 
     def _publish_dds(self, topic: str, payload: dict) -> None:
-        dds_adapter.publish(topic=topic, payload=payload)
+        # Media callbacks and completion retries share one SDK publication path.
+        with _dds_publish_lock:
+            dds_adapter.publish(topic=topic, payload=payload)
         # Short topic label for terminal display
         _label_map = {
             TASK_UPDATE_TOPIC: "任务更新",
@@ -190,7 +199,21 @@ class CollaborationService:
             payload["rel_range_m"] = task.tracking_plan_output.rel_range_m or 0
             payload["relative_bearing_deg"] = task.tracking_plan_output.relative_bearing_deg or 0
             payload["expected_speed"] = task.tracking_plan_output.expected_speed or 0
-        self._publish_dds(TASK_UPDATE_TOPIC, payload)
+        if task.status == TaskStatus.COMPLETED:
+            execution_time = task.start_time or task.create_time
+            task_id = task.task_id
+            key = (str(task_id), execution_time)
+
+            def is_current_execution():
+                current = task_store.get_task(task_id)
+                return (current is not None and current.status == TaskStatus.COMPLETED
+                        and (current.start_time or current.create_time) == execution_time)
+
+            completion_report_repeater.submit(
+                key, TASK_UPDATE_TOPIC, payload, self._publish_dds, is_current_execution,
+            )
+        else:
+            self._publish_dds(TASK_UPDATE_TOPIC, payload)
 
     @staticmethod
     def _safe_float(value, default: float = 0.0) -> float:
@@ -847,7 +870,11 @@ class CollaborationService:
         task_store.update_task(task)
         return task.arrival_stable_cycles >= get_tracking_arrival_stable_cycles()
 
-    def _trigger_media_if_needed(self, task: TaskContext) -> None:
+    def _select_evidence_channel(self, task: TaskContext, ownship=None):
+        target = situation_store.get_target_by_batch_no(task.current_target_batch_no)
+        return select_evidence_channel(ownship or situation_store.get_ownship(), target)
+
+    def _trigger_media_if_needed(self, task: TaskContext, ownship=None) -> None:
         if not task.optronic_open_confirmed:
             return
 
@@ -855,14 +882,24 @@ class CollaborationService:
             return
 
         media = task.stream_media_param
+        channel_id = None
+        if media_client.dual_stream_enabled():
+            channel_id = self._select_evidence_channel(task, ownship)
+            dual_video_recorder.reconcile(task.task_id, channel_id, task.current_target_batch_no or 0)
+            if channel_id is None:
+                return
 
         if media.photo_enabled:
             elapsed = _seconds_since(task.last_photo_time)
             if elapsed is None or elapsed >= media.photo_interval_sec:
-                photo_result = media_client.capture_photo(task.task_id)
+                photo_task = task.model_copy(deep=True) if channel_id else task
+                if channel_id:
+                    photo_result = media_client.capture_photo(task.task_id, channel_id=channel_id)
+                else:
+                    photo_result = media_client.capture_photo(task.task_id)
                 task.last_photo_time = utc_now()
                 photo_payload = self._build_stream_media_payload(
-                    task=task,
+                    task=photo_task,
                     media=media,
                     media_result=photo_result,
                     media_event_type=1,
@@ -879,7 +916,25 @@ class CollaborationService:
                     info("Media", f"task={task.task_id} 拍照第{_photo_count}次",
                          interval="5s")
 
-        if media.video_enabled:
+        if media.video_enabled and channel_id:
+            # The callback publishes using the task/target associated with this segment.
+            snapshot = task.model_copy(deep=True)
+
+            def publish_segment(result):
+                payload = self._build_stream_media_payload(
+                    snapshot, media, result, media_event_type=2, media_type=2,
+                )
+                self._publish_dds(STREAM_MEDIA_PARAM_TOPIC, payload)
+                # Update only the original context; do not overwrite a replaced task.
+                task.last_video_time = utc_now()
+
+            dual_video_recorder.start_if_due(
+                task.task_id, channel_id, task.current_target_batch_no or 0,
+                media.video_duration_sec, media.video_interval_sec, task.last_video_time,
+                publish_segment,
+            )
+
+        if media.video_enabled and not channel_id:
             elapsed = _seconds_since(task.last_video_time)
             if elapsed is None or elapsed >= media.video_interval_sec:
                 video_result = media_client.record_video(task.task_id, media.video_duration_sec)
@@ -913,6 +968,14 @@ class CollaborationService:
         self.report_plan_if_changed(task)
         self.dispatch_autonomy_if_changed(task)
 
+        # Close an existing segment when the target crosses a hemisphere,
+        # even if the original arrival gate currently prevents starting another.
+        if media_client.dual_stream_enabled():
+            dual_video_recorder.reconcile(
+                task.task_id, self._select_evidence_channel(task, ownship),
+                task.current_target_batch_no or 0,
+            )
+
         if task.status != TaskStatus.RUNNING:
             return
 
@@ -924,7 +987,7 @@ class CollaborationService:
             return
 
         self._dispatch_optical_linkage_if_changed(task, task_status=1)
-        self._trigger_media_if_needed(task)
+        self._trigger_media_if_needed(task, ownship)
 
     def handle_patrol_collaboration(self, task: TaskContext) -> None:
         self.report_stage_if_changed(task)
@@ -967,6 +1030,9 @@ class CollaborationService:
         task_store.update_task(task)
 
     def on_task_finished(self, task: TaskContext) -> None:
+        # Publish the terminal status before cleanup, using the existing phase guard.
+        self.report_stage_if_changed(task)
+        dual_video_recorder.stop_task(task.task_id)
         finish_reason = getattr(task, "finish_reason", None)
         reason_str = finish_reason.value if hasattr(finish_reason, "value") else str(finish_reason or "-")
         print_rule(style="green")
